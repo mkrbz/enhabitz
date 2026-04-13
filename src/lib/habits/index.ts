@@ -5,6 +5,6 @@ export { isHabitDone, completedCount } from "./derived.svelte";
 
 export { toggleTodo } from "./todo";
 export { increment, decrement, setCount } from "./counter";
-export { startTimer, stopTimer, tickTimer, setTimerElapsed, resetTimer } from "./timer";
-export { startCounterTimer, stopCounterTimer, tickCounterTimer, setCounterTimerRound, resetCounterTimer } from "./counter-timer";
-export { addHabit, replaceHabit, deleteHabit } from "./manage";
+export { startTimer, stopTimer, setTimerElapsed, resetTimer } from "./timer";
+export { startCounterTimer, stopCounterTimer, setCounterTimerRound, resetCounterTimer } from "./counter-timer";
+export { initHabits, addHabit, replaceHabit, deleteHabit } from "./manage";

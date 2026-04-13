@@ -3,7 +3,6 @@
     import {
         startTimer,
         stopTimer,
-        tickTimer,
         setTimerElapsed,
         resetTimer,
         formatTime,
@@ -18,19 +17,31 @@
     let manualMinutes = $state("0");
     let manualSeconds = $state("0");
 
-    const done = $derived(habit.secondsElapsed >= habit.targetSeconds);
+    // Local display value — time-based, updated every 200ms while running
+    let displaySeconds = $state(habit.secondsElapsed);
+
+    const done = $derived(displaySeconds >= habit.targetSeconds);
     const progress = $derived(
-        Math.min(
-            Math.round((habit.secondsElapsed / habit.targetSeconds) * 100),
-            100,
-        ),
+        Math.min(Math.round((displaySeconds / habit.targetSeconds) * 100), 100),
     );
 
-    // Interval lives here, cleaned up on destroy
     $effect(() => {
-        if (!habit.isRunning) return;
-        const id = setInterval(() => tickTimer(habit.id), 1000);
-        return () => clearInterval(id);
+        if (!habit.isRunning || habit.startedAt === undefined) {
+            displaySeconds = habit.secondsElapsed;
+            return;
+        }
+        const startedAt = habit.startedAt;
+        const id = setInterval(() => {
+            displaySeconds = Math.max(
+                0,
+                Math.floor((Date.now() - startedAt) / 1000),
+            );
+        }, 200);
+        // Cleanup: fires when isRunning → false or component is destroyed
+        return () => {
+            clearInterval(id);
+            if (habit.isRunning) stopTimer(habit.id);
+        };
     });
 
     function toggleTimer() {
@@ -42,9 +53,8 @@
     }
 
     function openDialog() {
-        const s = habit.secondsElapsed;
-        manualMinutes = String(Math.floor(s / 60));
-        manualSeconds = String(s % 60);
+        manualMinutes = String(Math.floor(displaySeconds / 60));
+        manualSeconds = String(displaySeconds % 60);
         dialogOpen = true;
     }
 
@@ -70,7 +80,7 @@
             onclick={openDialog}
         >
             <span class={done ? "text-muted-foreground" : ""}
-                >{formatTime(habit.secondsElapsed)}</span
+                >{formatTime(displaySeconds)}</span
             >
             <span class="text-muted-foreground">
                 / {formatTime(habit.targetSeconds)}</span
@@ -101,16 +111,14 @@
             >
         </Dialog.Header>
 
-        <!-- Big timer display -->
         <div class="flex flex-col items-center gap-6 py-4">
             <div class="text-6xl font-mono tabular-nums font-bold">
-                {formatTime(habit.secondsElapsed)}
+                {formatTime(displaySeconds)}
             </div>
 
-            <!-- Progress ring placeholder (simple bar for now) -->
             <div class="w-full h-1.5 bg-muted rounded-full overflow-hidden">
                 <div
-                    class="h-full bg-primary rounded-full transition-all"
+                    class="h-full bg-primary rounded-full transition-none"
                     style="width: {progress}%"
                 ></div>
             </div>
@@ -132,7 +140,6 @@
                 </Button>
             </div>
 
-            <!-- Manual entry -->
             <div class="flex items-center gap-2 text-sm text-muted-foreground">
                 <span>Set manually:</span>
                 <input

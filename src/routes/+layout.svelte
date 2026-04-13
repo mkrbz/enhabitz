@@ -1,7 +1,9 @@
 <script lang="ts">
     import "../app.css";
+    import { onMount } from "svelte";
     import { page } from "$app/stores";
     import { CalendarCheck, ListTodo } from "@lucide/svelte";
+    import { initHabits } from "$lib/habits";
 
     let { children } = $props();
 
@@ -9,6 +11,10 @@
 
     $effect(() => {
         document.documentElement.classList.toggle("dark", dark);
+    });
+
+    onMount(() => {
+        initHabits();
     });
 
     const NAV = [

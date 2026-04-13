@@ -24,16 +24,18 @@ export interface TimerHabit extends BaseHabit {
     targetSeconds: number;
     secondsElapsed: number;
     isRunning: boolean;
+    startedAt?: number; // Date.now() offset by already-elapsed — ephemeral, never persisted
 }
 
 // Rounds model: N rounds × M seconds each
 export interface CounterTimerHabit extends BaseHabit {
     type: "counter-timer";
-    rounds: number;           // target number of rounds
-    secondsPerRound: number;  // duration of each round
-    currentRound: number;     // completed rounds (0-based)
-    roundSecondsElapsed: number; // seconds elapsed in the current round
+    rounds: number;
+    secondsPerRound: number;
+    currentRound: number;
+    roundSecondsElapsed: number;
     isRunning: boolean;
+    startedAt?: number; // Date.now() offset by total elapsed — ephemeral, never persisted
 }
 
 export type Habit = TodoHabit | CounterHabit | TimerHabit | CounterTimerHabit;
