@@ -4,6 +4,7 @@
         CounterTimerHabit,
         Habit,
         HabitType,
+        RepeatType,
         TimerHabit,
         TodoHabit,
     } from "$lib/types";
@@ -27,6 +28,15 @@
         { value: "timer", label: "Timer" },
         { value: "counter-timer", label: "Sets" },
     ];
+
+    const REPEAT_TYPES: { value: RepeatType; label: string }[] = [
+        { value: "daily", label: "Daily" },
+        { value: "weekly", label: "Weekly" },
+        { value: "monthly", label: "Monthly" },
+        { value: "interval", label: "Every N days" },
+    ];
+
+    const WEEK_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
     // ── Form state ────────────────────────────────────────────────────────────
 
@@ -69,6 +79,16 @@
         habit?.type === "counter-timer" ? habit.secondsPerRound % 60 : 30,
     );
 
+    // scheduling
+    // svelte-ignore state_referenced_locally
+    let startDate = $state(habit?.startDate ?? "");
+    // svelte-ignore state_referenced_locally
+    let repeatType = $state<RepeatType>(habit?.repeatType ?? "daily");
+    // svelte-ignore state_referenced_locally
+    let repeatDays = $state<number[]>(habit?.repeatDays ?? []);
+    // svelte-ignore state_referenced_locally
+    let repeatEvery = $state(habit?.repeatEvery ?? 2);
+
     // ── Derived ───────────────────────────────────────────────────────────────
 
     const totalTimerSeconds = $derived(timerMinutes * 60 + timerSeconds);
@@ -79,22 +99,44 @@
         label.trim().length > 0 &&
             (type !== "timer" || totalTimerSeconds > 0) &&
             (type !== "counter-timer" || totalRoundSeconds > 0) &&
-            (type !== "counter" || target > 0),
+            (type !== "counter" || target > 0) &&
+            (!startDate || repeatType !== "weekly" || repeatDays.length > 0) &&
+            (!startDate || repeatType !== "monthly" || repeatDays.length > 0) &&
+            (!startDate || repeatType !== "interval" || repeatEvery >= 1),
     );
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    function toggleDay(day: number) {
+        if (repeatDays.includes(day)) {
+            repeatDays = repeatDays.filter((d) => d !== day);
+        } else {
+            repeatDays = [...repeatDays, day].sort((a, b) => a - b);
+        }
+    }
 
     // ── Submit ────────────────────────────────────────────────────────────────
 
     function submit() {
         if (!isValid) return;
 
+        const schedule = {
+            startDate: startDate || null,
+            repeatType,
+            repeatDays: (repeatType === "weekly" || repeatType === "monthly") ? repeatDays : null,
+            repeatEvery: repeatType === "interval" ? repeatEvery : null,
+            isActiveToday: false, // Rust will recompute on next load
+        };
+
         let data: Omit<Habit, "id">;
 
         switch (type) {
             case "todo":
-                data = { type, label: label.trim(), done: false } as TodoHabit;
+                data = { ...schedule, type, label: label.trim(), done: false } as TodoHabit;
                 break;
             case "counter":
                 data = {
+                    ...schedule,
                     type,
                     label: label.trim(),
                     count: 0,
@@ -104,6 +146,7 @@
                 break;
             case "timer":
                 data = {
+                    ...schedule,
                     type,
                     label: label.trim(),
                     targetSeconds: totalTimerSeconds,
@@ -113,6 +156,7 @@
                 break;
             case "counter-timer":
                 data = {
+                    ...schedule,
                     type,
                     label: label.trim(),
                     rounds,
@@ -270,6 +314,114 @@
             {/if}
         </div>
     {/if}
+
+    <!-- Scheduling -->
+    <div class="flex flex-col gap-3 border-t border-border pt-4">
+        <!-- Start date -->
+        <div class="flex flex-col gap-1.5">
+            <Label for="start-date">Start date</Label>
+            <input
+                id="start-date"
+                type="date"
+                bind:value={startDate}
+                class="rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            {#if !startDate}
+                <p class="text-xs text-muted-foreground">
+                    Leave empty to save as a draft / idea.
+                </p>
+            {/if}
+        </div>
+
+        <!-- Repeat (only meaningful once start date is set) -->
+        {#if startDate}
+            <div class="flex flex-col gap-1.5">
+                <Label>Repeat</Label>
+                <div class="grid grid-cols-4 gap-1 rounded-lg border border-border p-1">
+                    {#each REPEAT_TYPES as rt}
+                        <button
+                            class={`rounded-md py-1.5 text-xs font-medium transition-colors
+                                ${
+                                    repeatType === rt.value
+                                        ? "bg-primary text-primary-foreground"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                }`}
+                            onclick={() => {
+                                repeatType = rt.value;
+                                repeatDays = [];
+                            }}
+                        >
+                            {rt.label}
+                        </button>
+                    {/each}
+                </div>
+            </div>
+
+            <!-- Weekly day picker -->
+            {#if repeatType === "weekly"}
+                <div class="flex flex-col gap-1.5">
+                    <Label>Days of the week</Label>
+                    <div class="flex gap-1">
+                        {#each WEEK_DAYS as day, i}
+                            <button
+                                class={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors
+                                    ${
+                                        repeatDays.includes(i)
+                                            ? "bg-primary text-primary-foreground"
+                                            : "border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    }`}
+                                onclick={() => toggleDay(i)}
+                            >
+                                {day}
+                            </button>
+                        {/each}
+                    </div>
+                    {#if repeatDays.length === 0}
+                        <p class="text-xs text-destructive">Select at least one day.</p>
+                    {/if}
+                </div>
+            {/if}
+
+            <!-- Monthly day picker -->
+            {#if repeatType === "monthly"}
+                <div class="flex flex-col gap-1.5">
+                    <Label>Days of the month</Label>
+                    <div class="flex flex-wrap gap-1">
+                        {#each Array.from({ length: 31 }, (_, i) => i + 1) as day}
+                            <button
+                                class={`w-8 h-8 rounded-md text-xs font-medium transition-colors
+                                    ${
+                                        repeatDays.includes(day)
+                                            ? "bg-primary text-primary-foreground"
+                                            : "border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    }`}
+                                onclick={() => toggleDay(day)}
+                            >
+                                {day}
+                            </button>
+                        {/each}
+                    </div>
+                    {#if repeatDays.length === 0}
+                        <p class="text-xs text-destructive">Select at least one day.</p>
+                    {/if}
+                </div>
+            {/if}
+
+            <!-- Interval -->
+            {#if repeatType === "interval"}
+                <div class="flex items-center gap-2">
+                    <span class="text-sm text-muted-foreground">Every</span>
+                    <input
+                        type="number"
+                        min="1"
+                        bind:value={repeatEvery}
+                        class="w-20 rounded-md border border-input bg-transparent px-3 py-2 text-sm text-center font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    <span class="text-sm text-muted-foreground">days</span>
+                </div>
+            {/if}
+        {/if}
+    </div>
 
     <!-- Actions -->
     <div class="flex justify-end gap-2 pt-1">

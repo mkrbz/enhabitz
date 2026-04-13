@@ -13,5 +13,5 @@ export function isHabitDone(habit: Habit): boolean {
 }
 
 export function completedCount(): number {
-    return habits.filter(isHabitDone).length;
+    return habits.filter((h) => h.isActiveToday && isHabitDone(h)).length;
 }

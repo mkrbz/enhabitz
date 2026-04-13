@@ -1,9 +1,16 @@
 export type HabitType = "todo" | "counter" | "timer" | "counter-timer";
+export type RepeatType = "daily" | "weekly" | "monthly" | "interval";
 
 export interface BaseHabit {
     id: number;
     type: HabitType;
     label: string;
+    // Scheduling — null startDate means draft/idea
+    startDate: string | null;       // YYYY-MM-DD
+    repeatType: RepeatType;
+    repeatDays: number[] | null;    // weekly: 0–6 (Sun=0), monthly: 1–31
+    repeatEvery: number | null;     // interval: every N days
+    isActiveToday: boolean;         // computed by Rust
 }
 
 export interface TodoHabit extends BaseHabit {

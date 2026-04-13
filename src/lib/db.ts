@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Habit, TodoHabit, CounterHabit, TimerHabit, CounterTimerHabit } from "./types";
+import type { Habit, TodoHabit, CounterHabit, TimerHabit, CounterTimerHabit, RepeatType } from "./types";
 
 // ─── Wire types (mirror Rust HabitRecord / HabitData / LogData) ───────────────
 
@@ -15,6 +15,12 @@ interface HabitRecord {
     // counter-timer
     rounds: number | null;
     seconds_per_round: number | null;
+    // scheduling
+    start_date: string | null;
+    repeat_type: RepeatType;
+    repeat_days: string | null; // JSON-encoded number[]
+    repeat_every: number | null;
+    is_active_today: boolean;
     // today's log
     done: boolean | null;
     count: number | null;
@@ -32,6 +38,11 @@ interface HabitData {
     target_seconds: number | null;
     rounds: number | null;
     seconds_per_round: number | null;
+    // scheduling
+    start_date: string | null;
+    repeat_type: RepeatType;
+    repeat_days: string | null; // JSON-encoded number[]
+    repeat_every: number | null;
 }
 
 interface LogData {
@@ -70,7 +81,14 @@ export async function dbSaveLog(habit: Habit): Promise<void> {
 // ─── Mapping helpers ──────────────────────────────────────────────────────────
 
 function recordToHabit(r: HabitRecord): Habit {
-    const base = { id: r.id, label: r.label };
+    const schedule = {
+        startDate: r.start_date,
+        repeatType: r.repeat_type,
+        repeatDays: r.repeat_days ? JSON.parse(r.repeat_days) : null,
+        repeatEvery: r.repeat_every,
+        isActiveToday: r.is_active_today,
+    };
+    const base = { id: r.id, label: r.label, ...schedule };
     switch (r.type) {
         case "todo":
             return { ...base, type: "todo", done: r.done ?? false } as TodoHabit;
@@ -110,6 +128,10 @@ function habitToData(habit: Omit<Habit, "id">): HabitData {
         target_seconds: habit.type === "timer" ? (habit as TimerHabit).targetSeconds : null,
         rounds: habit.type === "counter-timer" ? (habit as CounterTimerHabit).rounds : null,
         seconds_per_round: habit.type === "counter-timer" ? (habit as CounterTimerHabit).secondsPerRound : null,
+        start_date: habit.startDate,
+        repeat_type: habit.repeatType,
+        repeat_days: habit.repeatDays ? JSON.stringify(habit.repeatDays) : null,
+        repeat_every: habit.repeatEvery,
     };
 }
 
