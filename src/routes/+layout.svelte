@@ -3,7 +3,7 @@
     import { onMount } from "svelte";
     import { page } from "$app/stores";
     import { CalendarCheck, ListTodo } from "@lucide/svelte";
-    import { initHabits } from "$lib/habits";
+    import { initHabits, checkAndResetIfNewDay } from "$lib/habits";
 
     let { children } = $props();
 
@@ -15,6 +15,12 @@
 
     onMount(() => {
         initHabits();
+        window.addEventListener("focus", checkAndResetIfNewDay);
+        const interval = setInterval(checkAndResetIfNewDay, 60_000);
+        return () => {
+            window.removeEventListener("focus", checkAndResetIfNewDay);
+            clearInterval(interval);
+        };
     });
 
     const NAV = [

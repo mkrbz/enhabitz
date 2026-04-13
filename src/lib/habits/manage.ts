@@ -1,8 +1,34 @@
-import { habits, initHabits } from "./state.svelte";
-import { dbAddHabit, dbUpdateHabit, dbDeleteHabit } from "$lib/db";
+import { habits } from "./state.svelte";
+import { stopTimer } from "./timer";
+import { stopCounterTimer } from "./counter-timer";
+import { dbLoadHabits, dbAddHabit, dbUpdateHabit, dbDeleteHabit } from "$lib/db";
 import type { Habit } from "$lib/types";
 
-export { initHabits };
+let loadedDate = "";
+
+function todayStr(): string {
+    return new Date().toISOString().slice(0, 10);
+}
+
+// ─── Init & reset ─────────────────────────────────────────────────────────────
+
+export async function initHabits(): Promise<void> {
+    const loaded = await dbLoadHabits();
+    habits.splice(0, habits.length, ...loaded);
+    loadedDate = todayStr();
+}
+
+export async function checkAndResetIfNewDay(): Promise<void> {
+    if (loadedDate === todayStr()) return;
+    // Stop any running timers so they save their progress before the day rolls over
+    for (const h of habits) {
+        if (h.type === "timer" && h.isRunning) stopTimer(h.id);
+        if (h.type === "counter-timer" && h.isRunning) stopCounterTimer(h.id);
+    }
+    await initHabits();
+}
+
+// ─── CRUD ─────────────────────────────────────────────────────────────────────
 
 export async function addHabit(habit: Omit<Habit, "id">): Promise<void> {
     const id = await dbAddHabit(habit);
@@ -11,8 +37,8 @@ export async function addHabit(habit: Omit<Habit, "id">): Promise<void> {
 
 export async function replaceHabit(id: number, habit: Omit<Habit, "id">): Promise<void> {
     await dbUpdateHabit(id, habit);
-    const idx = habits.findIndex((h) => h.id === id);
-    if (idx !== -1) habits[idx] = { ...habit, id } as Habit;
+    // Reload from DB so today's progress is preserved alongside the new definition
+    await initHabits();
 }
 
 export async function deleteHabit(id: number): Promise<void> {
