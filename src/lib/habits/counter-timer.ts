@@ -1,5 +1,5 @@
 import { find } from "./state.svelte";
-import { dbSaveLog } from "$lib/db";
+import { saveLog } from "./history.svelte";
 import type { CounterTimerHabit } from "$lib/types";
 
 function totalElapsedSeconds(h: CounterTimerHabit): number {
@@ -25,7 +25,7 @@ export function stopCounterTimer(id: number) {
         h.startedAt = undefined;
     }
     h.isRunning = false;
-    dbSaveLog(h);
+    saveLog(h);
 }
 
 export function setCounterTimerRound(id: number, round: number) {
@@ -39,7 +39,7 @@ export function setCounterTimerRound(id: number, round: number) {
     } else if (h.isRunning) {
         h.startedAt = Date.now() - totalElapsedSeconds(h) * 1000;
     }
-    dbSaveLog(h);
+    saveLog(h);
 }
 
 export function resetCounterTimer(id: number) {
@@ -49,5 +49,5 @@ export function resetCounterTimer(id: number) {
     h.roundSecondsElapsed = 0;
     h.isRunning = false;
     h.startedAt = undefined;
-    dbSaveLog(h);
+    saveLog(h);
 }

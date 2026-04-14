@@ -78,6 +78,10 @@ export async function dbSaveLog(habit: Habit): Promise<void> {
     return invoke("save_log", { log: habitToLog(habit) });
 }
 
+export async function dbLoadLogHistory(): Promise<{ date: string; label: string }[]> {
+    return invoke("load_log_history");
+}
+
 // ─── Mapping helpers ──────────────────────────────────────────────────────────
 
 function recordToHabit(r: HabitRecord): Habit {

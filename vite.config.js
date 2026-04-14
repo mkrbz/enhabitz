@@ -13,6 +13,15 @@ export default defineConfig(async () => ({
     ],
     // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
     //
+    // Svelte component libraries ship .svelte files that esbuild can't handle —
+    // exclude them from pre-bundling so vite-plugin-svelte processes them instead.
+    optimizeDeps: {
+        exclude: ["@mkrbz/svelte-ui"],
+    },
+    // Follow symlinks so `bun add file:../svelte-ui` resolves correctly.
+    resolve: {
+        preserveSymlinks: true,
+    },
     // 1. prevent Vite from obscuring rust errors
     clearScreen: false,
     // 2. tauri expects a fixed port, fail if that port is not available

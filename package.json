@@ -12,7 +12,9 @@
     "tauri": "tauri"
   },
   "license": "MIT",
+  "trustedDependencies": ["@mkrbz/svelte-ui"],
   "dependencies": {
+    "@mkrbz/svelte-ui": "https://github.com/mkrbz/svelte-ui",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2"
   },

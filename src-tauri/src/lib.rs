@@ -1,6 +1,6 @@
 mod db;
 
-use db::{Db, HabitData, HabitRecord, LogData};
+use db::{DayEntry, Db, HabitData, HabitRecord, LogData};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -58,6 +58,16 @@ fn save_log(state: tauri::State<'_, DbState>, log: LogData) -> Result<(), String
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn load_log_history(state: tauri::State<'_, DbState>) -> Result<Vec<DayEntry>, String> {
+    state
+        .0
+        .lock()
+        .unwrap()
+        .load_log_history()
+        .map_err(|e| e.to_string())
+}
+
 // ─── App setup ────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -78,6 +88,7 @@ pub fn run() {
             update_habit,
             delete_habit,
             save_log,
+            load_log_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

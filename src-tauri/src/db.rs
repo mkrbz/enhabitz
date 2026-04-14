@@ -57,6 +57,13 @@ pub struct HabitData {
     pub repeat_every: Option<i64>,
 }
 
+/// One row returned by load_log_history — one completed habit per day.
+#[derive(Serialize)]
+pub struct DayEntry {
+    pub date: String,
+    pub label: String,
+}
+
 /// Sent by frontend after every progress mutation.
 #[derive(Deserialize)]
 pub struct LogData {
@@ -282,6 +289,30 @@ impl Db {
             ],
         )?;
         Ok(())
+    }
+
+    pub fn load_log_history(&self) -> Result<Vec<DayEntry>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT l.date, h.label
+            FROM habit_logs l
+            JOIN habits h ON h.id = l.habit_id
+            WHERE
+                (h.type = 'todo'          AND l.done = 1) OR
+                (h.type = 'counter'       AND h.sets IS NULL     AND l.count >= h.target) OR
+                (h.type = 'counter'       AND h.sets IS NOT NULL AND l.completed_sets >= h.sets) OR
+                (h.type = 'timer'         AND l.seconds_elapsed >= h.target_seconds) OR
+                (h.type = 'counter-timer' AND l.current_round >= h.rounds)
+            ORDER BY l.date, h.label
+            ",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(DayEntry {
+                date: row.get(0)?,
+                label: row.get(1)?,
+            })
+        })?;
+        rows.collect()
     }
 
     pub fn delete_habit(&self, id: i64) -> Result<()> {

@@ -1,5 +1,5 @@
 import { find } from "./state.svelte";
-import { dbSaveLog } from "$lib/db";
+import { saveLog } from "./history.svelte";
 import type { CounterHabit } from "$lib/types";
 
 export function increment(id: number) {
@@ -16,7 +16,7 @@ export function increment(id: number) {
     } else {
         h.count++;
     }
-    dbSaveLog(h);
+    saveLog(h);
 }
 
 export function decrement(id: number) {
@@ -28,7 +28,7 @@ export function decrement(id: number) {
         h.completedSets = (h.completedSets ?? 0) - 1;
         h.count = h.target - 1;
     }
-    dbSaveLog(h);
+    saveLog(h);
 }
 
 export function setCount(id: number, count: number, completedSets?: number) {
@@ -38,5 +38,5 @@ export function setCount(id: number, count: number, completedSets?: number) {
     if (completedSets !== undefined && h.sets !== undefined) {
         h.completedSets = Math.max(0, Math.min(completedSets, h.sets));
     }
-    dbSaveLog(h);
+    saveLog(h);
 }

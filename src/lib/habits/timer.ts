@@ -1,5 +1,5 @@
 import { find } from "./state.svelte";
-import { dbSaveLog } from "$lib/db";
+import { saveLog } from "./history.svelte";
 import type { TimerHabit } from "$lib/types";
 
 export function startTimer(id: number) {
@@ -18,7 +18,7 @@ export function stopTimer(id: number) {
         h.startedAt = undefined;
     }
     h.isRunning = false;
-    dbSaveLog(h);
+    saveLog(h);
 }
 
 export function setTimerElapsed(id: number, seconds: number) {
@@ -26,7 +26,7 @@ export function setTimerElapsed(id: number, seconds: number) {
     if (!h) return;
     h.secondsElapsed = Math.max(0, seconds);
     if (h.isRunning) h.startedAt = Date.now() - h.secondsElapsed * 1000;
-    dbSaveLog(h);
+    saveLog(h);
 }
 
 export function resetTimer(id: number) {
@@ -35,5 +35,5 @@ export function resetTimer(id: number) {
     h.secondsElapsed = 0;
     h.isRunning = false;
     h.startedAt = undefined;
-    dbSaveLog(h);
+    saveLog(h);
 }

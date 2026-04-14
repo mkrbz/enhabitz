@@ -3,7 +3,7 @@
     import { onMount } from "svelte";
     import { page } from "$app/stores";
     import { CalendarCheck, ListTodo } from "@lucide/svelte";
-    import { initHabits, checkAndResetIfNewDay } from "$lib/habits";
+    import { initHabits, checkAndResetIfNewDay, refreshHistory } from "$lib/habits";
 
     let { children } = $props();
 
@@ -15,6 +15,7 @@
 
     onMount(() => {
         initHabits();
+        refreshHistory();
         window.addEventListener("focus", checkAndResetIfNewDay);
         const interval = setInterval(checkAndResetIfNewDay, 60_000);
         return () => {
