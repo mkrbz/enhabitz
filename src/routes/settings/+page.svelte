@@ -4,33 +4,69 @@
     import { Button } from "$lib/components/ui/button";
     import { Keyboard } from "@lucide/svelte";
 
-    let currentShortcut = $state("");
-    let inputValue = $state("");
-    let recording = $state(false);
-    let status = $state<"idle" | "saved" | "error">("idle");
-    let errorMsg = $state("");
+    type ShortcutTarget = "widget" | "main";
 
-    onMount(async () => {
-        currentShortcut = await invoke<string>("get_shortcut");
-        inputValue = currentShortcut;
-    });
-
-    function startRecording() {
-        inputValue = "";
-        recording = true;
-        status = "idle";
+    interface ShortcutState {
+        current: string;
+        input: string;
+        recording: boolean;
+        status: "idle" | "saved" | "error";
+        error: string;
     }
 
-    function stopRecording() {
-        recording = false;
-        if (!inputValue) inputValue = currentShortcut;
+    const defaults: Record<ShortcutTarget, string> = {
+        widget: "CommandOrControl+Shift+H",
+        main: "CommandOrControl+Shift+E",
+    };
+
+    let shortcuts = $state<Record<ShortcutTarget, ShortcutState>>({
+        widget: {
+            current: "",
+            input: "",
+            recording: false,
+            status: "idle",
+            error: "",
+        },
+        main: {
+            current: "",
+            input: "",
+            recording: false,
+            status: "idle",
+            error: "",
+        },
+    });
+
+    onMount(async () => {
+        for (const target of ["widget", "main"] as ShortcutTarget[]) {
+            const val = await invoke<string>("get_shortcut", { target });
+            shortcuts[target].current = val;
+            shortcuts[target].input = val;
+        }
+    });
+
+    function startRecording(target: ShortcutTarget) {
+        // Stop any other active recording
+        for (const t of ["widget", "main"] as ShortcutTarget[]) {
+            if (t !== target) shortcuts[t].recording = false;
+        }
+        shortcuts[target].input = "";
+        shortcuts[target].recording = true;
+        shortcuts[target].status = "idle";
+    }
+
+    function stopRecording(target: ShortcutTarget) {
+        shortcuts[target].recording = false;
+        if (!shortcuts[target].input)
+            shortcuts[target].input = shortcuts[target].current;
     }
 
     function keydownHandler(e: KeyboardEvent) {
-        if (!recording) return;
+        const target = (["widget", "main"] as ShortcutTarget[]).find(
+            (t) => shortcuts[t].recording,
+        );
+        if (!target) return;
         e.preventDefault();
 
-        // Ignore lone modifier keys
         if (["Control", "Shift", "Alt", "Meta", "Super"].includes(e.key))
             return;
 
@@ -38,16 +74,13 @@
         if (e.ctrlKey || e.metaKey) parts.push("CommandOrControl");
         if (e.altKey) parts.push("Alt");
         if (e.shiftKey) parts.push("Shift");
+        parts.push(mapKey(e.key));
 
-        // Map key to Tauri accelerator key name
-        const key = mapKey(e.key, e.code);
-        parts.push(key);
-
-        inputValue = parts.join("+");
-        recording = false;
+        shortcuts[target].input = parts.join("+");
+        shortcuts[target].recording = false;
     }
 
-    function mapKey(key: string, code: string): string {
+    function mapKey(key: string): string {
         const map: Record<string, string> = {
             " ": "Space",
             ArrowUp: "Up",
@@ -65,83 +98,92 @@
             PageDown: "PageDown",
         };
         if (map[key]) return map[key];
-        // F-keys
         if (/^F\d+$/.test(key)) return key;
-        // Single printable char → uppercase
         if (key.length === 1) return key.toUpperCase();
         return key;
     }
 
-    async function save() {
+    async function save(target: ShortcutTarget) {
         try {
-            await invoke("set_shortcut", { shortcut: inputValue });
-            currentShortcut = inputValue;
-            status = "saved";
-            setTimeout(() => (status = "idle"), 2000);
+            await invoke("set_shortcut", {
+                target,
+                shortcut: shortcuts[target].input,
+            });
+            shortcuts[target].current = shortcuts[target].input;
+            shortcuts[target].status = "saved";
+            setTimeout(() => (shortcuts[target].status = "idle"), 2000);
         } catch (e) {
-            errorMsg = String(e);
-            status = "error";
+            shortcuts[target].error = String(e);
+            shortcuts[target].status = "error";
         }
     }
 
-    async function reset() {
-        inputValue = "CommandOrControl+Shift+H";
-        await save();
+    async function reset(target: ShortcutTarget) {
+        shortcuts[target].input = defaults[target];
+        await save(target);
     }
 </script>
 
 <svelte:window onkeydown={keydownHandler} />
 
-<div class="p-6 max-w-lg">
-    <h1 class="text-xl font-semibold mb-6">Settings</h1>
+<div class="p-6 max-w-lg space-y-8">
+    <h1 class="text-xl font-semibold">Settings</h1>
 
-    <section class="space-y-4">
-        <div
-            class="flex items-center gap-2 text-sm font-medium text-muted-foreground uppercase tracking-wider"
-        >
-            <Keyboard class="h-4 w-4" />
-            Global Shortcut
-        </div>
-
-        <p class="text-sm text-muted-foreground">
-            Press this shortcut anywhere to toggle the widget.
-        </p>
-
-        <div class="flex items-center gap-3">
-            <button
-                class={`flex-1 px-4 py-2 rounded-md border text-sm font-mono text-center transition-colors select-none
-                    ${
-                        recording
-                            ? "border-primary bg-primary/10 text-primary animate-pulse cursor-crosshair"
-                            : "border-border bg-muted text-foreground cursor-pointer hover:border-primary"
-                    }`}
-                onclick={recording ? stopRecording : startRecording}
+    {#each [{ target: "widget" as ShortcutTarget, label: "Widget Shortcut", desc: "Toggle the floating widget." }, { target: "main" as ShortcutTarget, label: "Main Window Shortcut", desc: "Toggle the main Enhabitz window." }] as item}
+        {@const sc = shortcuts[item.target]}
+        <section class="space-y-3">
+            <div
+                class="flex items-center gap-2 text-sm font-medium text-muted-foreground uppercase tracking-wider"
             >
-                {recording
-                    ? "Press your shortcut…"
-                    : inputValue || "Click to record"}
-            </button>
+                <Keyboard class="h-4 w-4" />
+                {item.label}
+            </div>
 
-            <Button
-                onclick={save}
-                disabled={inputValue === currentShortcut || !inputValue}
-            >
-                Save
-            </Button>
+            <p class="text-sm text-muted-foreground">{item.desc}</p>
 
-            <Button variant="outline" onclick={reset} title="Reset to default">
-                Reset
-            </Button>
-        </div>
+            <div class="flex items-center gap-3">
+                <button
+                    class={`flex-1 px-4 py-2 rounded-md border text-sm font-mono text-center transition-colors select-none
+                        ${
+                            sc.recording
+                                ? "border-primary bg-primary/10 text-primary animate-pulse cursor-crosshair"
+                                : "border-border bg-muted text-foreground cursor-pointer hover:border-primary"
+                        }`}
+                    onclick={() =>
+                        sc.recording
+                            ? stopRecording(item.target)
+                            : startRecording(item.target)}
+                >
+                    {sc.recording
+                        ? "Press your shortcut…"
+                        : sc.input || "Click to record"}
+                </button>
 
-        {#if status === "saved"}
-            <p class="text-sm text-green-500">Shortcut saved.</p>
-        {:else if status === "error"}
-            <p class="text-sm text-red-500">Error: {errorMsg}</p>
-        {/if}
+                <Button
+                    onclick={() => save(item.target)}
+                    disabled={sc.input === sc.current || !sc.input}
+                >
+                    Save
+                </Button>
 
-        <p class="text-xs text-muted-foreground">
-            Current: <span class="font-mono">{currentShortcut}</span>
-        </p>
-    </section>
+                <Button
+                    variant="outline"
+                    onclick={() => reset(item.target)}
+                    title="Reset to default"
+                >
+                    Reset
+                </Button>
+            </div>
+
+            {#if sc.status === "saved"}
+                <p class="text-sm text-green-500">Shortcut saved.</p>
+            {:else if sc.status === "error"}
+                <p class="text-sm text-red-500">Error: {sc.error}</p>
+            {/if}
+
+            <p class="text-xs text-muted-foreground">
+                Current: <span class="font-mono">{sc.current}</span>
+            </p>
+        </section>
+    {/each}
 </div>
