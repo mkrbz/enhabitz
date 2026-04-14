@@ -370,6 +370,11 @@ pub fn run() {
 
             #[cfg(target_os = "linux")]
             if is_hyprland() {
+                // Unbind first to clear stale binds from previous runs —
+                // hyprctl keyword bind accumulates entries, so without this
+                // each restart adds another duplicate that fires on keypress.
+                hyprland_unbind(&widget_sc);
+                hyprland_unbind(&main_sc);
                 widget_hypr = hyprland_bind(&widget_sc, HYPRLAND_WIDGET_FLAG);
                 main_hypr = hyprland_bind(&main_sc, HYPRLAND_MAIN_FLAG);
                 if widget_hypr || main_hypr {
