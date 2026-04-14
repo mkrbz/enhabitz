@@ -72,7 +72,18 @@
         red: ["bg-rose-950", "bg-rose-700", "bg-rose-500", "bg-rose-300"],
     };
 
-    let theme = $state<Theme>("green");
+    const THEME_KEY = "heatmap-theme";
+
+    function savedTheme(): Theme {
+        const v = localStorage.getItem(THEME_KEY);
+        return v === "green" || v === "orange" || v === "red" ? v : "green";
+    }
+
+    let theme = $state<Theme>(savedTheme());
+
+    $effect(() => {
+        localStorage.setItem(THEME_KEY, theme);
+    });
 
     function colorScale(count: number, future: boolean): string {
         if (future) return "bg-muted border border-border";

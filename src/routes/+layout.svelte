@@ -3,14 +3,19 @@
     import { onMount } from "svelte";
     import { page } from "$app/stores";
     import { CalendarCheck, ListTodo } from "@lucide/svelte";
-    import { initHabits, checkAndResetIfNewDay, refreshHistory } from "$lib/habits";
+    import {
+        initHabits,
+        checkAndResetIfNewDay,
+        refreshHistory,
+    } from "$lib/habits";
 
     let { children } = $props();
 
-    let dark = $state(true);
+    let dark = $state(localStorage.getItem("theme") !== "light");
 
     $effect(() => {
         document.documentElement.classList.toggle("dark", dark);
+        localStorage.setItem("theme", dark ? "dark" : "light");
     });
 
     onMount(() => {
