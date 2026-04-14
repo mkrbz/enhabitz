@@ -11,6 +11,10 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 pub struct DbState(pub Mutex<Db>);
 
+/// Tracks which shortcut backend is active.
+/// Some(shortcut) = Hyprland backend (plugin unavailable), None = plugin backend.
+pub struct HyprlandBackend(pub Mutex<Option<String>>);
+
 const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+H";
 const SHORTCUT_FILENAME: &str = "shortcut.txt";
 
@@ -95,18 +99,29 @@ fn set_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<(), String> {
         return Err("Shortcut cannot be empty".into());
     }
 
-    // Unregister all current shortcuts
+    let hypr_state = app.state::<HyprlandBackend>();
+    let mut hypr = hypr_state.0.lock().unwrap();
+
+    #[cfg(target_os = "linux")]
+    if let Some(old) = hypr.as_ref() {
+        // Hyprland backend: swap binds
+        hyprland_unbind(old);
+        hyprland_bind(&shortcut)
+            .then_some(())
+            .ok_or_else(|| "hyprctl bind failed".to_string())?;
+        *hypr = Some(shortcut.clone());
+        std::fs::write(shortcut_path(&app), &shortcut).map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    // Plugin backend (Windows / macOS / X11 Linux)
     app.global_shortcut()
         .unregister_all()
         .map_err(|e| e.to_string())?;
-
-    // Register the new one
     register_shortcut(&app, &shortcut)?;
+    std::fs::write(shortcut_path(&app), &shortcut).map_err(|e| e.to_string())?;
 
-    // Persist
-    let path = shortcut_path(&app);
-    std::fs::write(&path, &shortcut).map_err(|e| e.to_string())?;
-
+    drop(hypr); // release lock before returning
     Ok(())
 }
 
@@ -130,6 +145,90 @@ fn register_shortcut(app: &tauri::AppHandle, shortcut: &str) -> Result<(), Strin
         .map_err(|e| e.to_string())
 }
 
+// ─── Hyprland shortcut backend (Linux only) ───────────────────────────────────
+//
+// On Wayland/Hyprland the global-hotkey crate (x11rb) cannot intercept keys.
+// Fallback: register a `hyprctl keyword bind` that `touch`es a flag file,
+// and poll that file from a background thread.
+
+#[cfg(target_os = "linux")]
+const HYPRLAND_FLAG: &str = "/tmp/enhabitz-toggle";
+
+/// Returns true if running inside a Hyprland session.
+#[cfg(target_os = "linux")]
+fn is_hyprland() -> bool {
+    std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
+}
+
+/// Convert a Tauri accelerator string to Hyprland (mods, key) pair.
+/// e.g. "CommandOrControl+Shift+H" → ("CTRL SHIFT", "h")
+#[cfg(target_os = "linux")]
+fn tauri_to_hyprland(shortcut: &str) -> (String, String) {
+    let mut mods: Vec<&str> = Vec::new();
+    let mut key = String::from("h");
+    for part in shortcut.split('+') {
+        match part.trim() {
+            "CommandOrControl" | "Control" | "Ctrl" => mods.push("CTRL"),
+            "Shift" => mods.push("SHIFT"),
+            "Alt" => mods.push("ALT"),
+            "Super" | "Meta" | "Command" => mods.push("SUPER"),
+            k => key = k.to_lowercase(),
+        }
+    }
+    (mods.join(" "), key)
+}
+
+/// Register a Hyprland keybind that touches the flag file. Returns success.
+#[cfg(target_os = "linux")]
+fn hyprland_bind(shortcut: &str) -> bool {
+    let (mods, key) = tauri_to_hyprland(shortcut);
+    let bind_arg = format!("{},{},exec,/usr/bin/touch {}", mods, key, HYPRLAND_FLAG);
+    eprintln!("[enhabitz] hyprctl keyword bind {}", bind_arg);
+    let out = std::process::Command::new("hyprctl")
+        .arg("keyword")
+        .arg("bind")
+        .arg(&bind_arg)
+        .output();
+    match out {
+        Ok(o) => {
+            let ok = o.status.success();
+            if !ok {
+                eprintln!(
+                    "[enhabitz] hyprctl stderr: {}",
+                    String::from_utf8_lossy(&o.stderr)
+                );
+            }
+            ok
+        }
+        Err(e) => {
+            eprintln!("[enhabitz] hyprctl exec error: {}", e);
+            false
+        }
+    }
+}
+
+/// Remove an existing Hyprland keybind.
+#[cfg(target_os = "linux")]
+fn hyprland_unbind(shortcut: &str) {
+    let (mods, key) = tauri_to_hyprland(shortcut);
+    let _ = std::process::Command::new("hyprctl")
+        .args(["keyword", "unbind", &format!("{},{}", mods, key)])
+        .status();
+}
+
+/// Spawn a background thread that polls the flag file every 150 ms.
+/// When the file appears it's deleted and the widget is toggled.
+#[cfg(target_os = "linux")]
+fn start_hyprland_watcher(app_handle: tauri::AppHandle) {
+    let _ = std::fs::remove_file(HYPRLAND_FLAG);
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        if std::fs::remove_file(HYPRLAND_FLAG).is_ok() {
+            toggle_widget(&app_handle);
+        }
+    });
+}
+
 // ─── macOS dock visibility ────────────────────────────────────────────────────
 
 /// Show or hide the app in the macOS dock and cmd+tab switcher.
@@ -143,7 +242,6 @@ fn set_dock_visible(visible: bool) {
         let ns_app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
         let _: () = msg_send![ns_app, setActivationPolicy: policy];
         if visible {
-            // Bring the app to front after restoring Regular policy.
             let _: () = msg_send![ns_app, activateIgnoringOtherApps: true];
         }
     }
@@ -200,9 +298,33 @@ pub fn run() {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
-            if let Err(e) = register_shortcut(app.handle(), &saved) {
-                eprintln!("Failed to register shortcut '{}': {}", saved, e);
+
+            #[allow(unused_mut)]
+            let mut using_hyprland = false;
+
+            // On Hyprland (Wayland) the global-hotkey crate uses x11rb and cannot
+            // intercept compositor key events — skip the plugin and use hyprctl directly.
+            #[cfg(target_os = "linux")]
+            if is_hyprland() {
+                if hyprland_bind(&saved) {
+                    start_hyprland_watcher(app.handle().clone());
+                    using_hyprland = true;
+                } else {
+                    eprintln!("[enhabitz] Hyprland bind failed for '{}'", saved);
+                }
             }
+
+            if !using_hyprland {
+                if let Err(e) = register_shortcut(app.handle(), &saved) {
+                    eprintln!("[enhabitz] Plugin shortcut failed for '{}': {}", saved, e);
+                }
+            }
+
+            app.manage(HyprlandBackend(Mutex::new(if using_hyprland {
+                Some(saved)
+            } else {
+                None
+            })));
 
             // ── Main window: hide instead of close ────────────────────────────
             let main = app.get_webview_window("main").unwrap();
