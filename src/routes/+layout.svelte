@@ -2,7 +2,7 @@
     import "../app.css";
     import { onMount } from "svelte";
     import { page } from "$app/stores";
-    import { CalendarCheck, ListTodo } from "@lucide/svelte";
+    import { CalendarCheck, ListTodo, Settings } from "@lucide/svelte";
     import {
         initHabits,
         checkAndResetIfNewDay,
@@ -32,6 +32,7 @@
     const NAV = [
         { href: "/", label: "Today", icon: CalendarCheck },
         { href: "/habits", label: "Habits", icon: ListTodo },
+        { href: "/settings", label: "Settings", icon: Settings },
     ];
 
     const isWidget = $derived($page.url.pathname === "/widget");
