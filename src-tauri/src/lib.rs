@@ -130,6 +130,25 @@ fn register_shortcut(app: &tauri::AppHandle, shortcut: &str) -> Result<(), Strin
         .map_err(|e| e.to_string())
 }
 
+// ─── macOS dock visibility ────────────────────────────────────────────────────
+
+/// Show or hide the app in the macOS dock and cmd+tab switcher.
+/// Regular (0) = visible; Accessory (1) = hidden.
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+fn set_dock_visible(visible: bool) {
+    use objc::{class, msg_send, runtime::Object, sel, sel_impl};
+    let policy: i64 = if visible { 0 } else { 1 };
+    unsafe {
+        let ns_app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+        let _: () = msg_send![ns_app, setActivationPolicy: policy];
+        if visible {
+            // Bring the app to front after restoring Regular policy.
+            let _: () = msg_send![ns_app, activateIgnoringOtherApps: true];
+        }
+    }
+}
+
 // ─── Widget helpers ───────────────────────────────────────────────────────────
 
 fn toggle_widget(app: &tauri::AppHandle) {
@@ -192,6 +211,8 @@ pub fn run() {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = main_clone.hide();
+                    #[cfg(target_os = "macos")]
+                    set_dock_visible(false);
                 }
             });
 
@@ -208,6 +229,8 @@ pub fn run() {
                     "widget" => toggle_widget(app),
                     "show" => {
                         if let Some(w) = app.get_webview_window("main") {
+                            #[cfg(target_os = "macos")]
+                            set_dock_visible(true);
                             let _ = w.show();
                             let _ = w.set_focus();
                         }
