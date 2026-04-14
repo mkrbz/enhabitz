@@ -12,9 +12,23 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "enhabitz",
         "width": 800,
         "height": 600
+      },
+      {
+        "label": "widget",
+        "url": "/widget",
+        "title": "enhabitz",
+        "width": 380,
+        "height": 540,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "visible": false,
+        "resizable": false,
+        "skipTaskbar": true,
+        "shadow": true
       }
     ],
     "security": {
