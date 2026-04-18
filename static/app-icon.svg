@@ -1,0 +1,32 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Modern Rounded Background -->
+  <rect width="1024" height="1024" rx="220" fill="#1A1B1E"/>
+  
+  <!-- Heatmap Grid Group -->
+  <g transform="translate(212, 212)">
+    <!-- Row 1 -->
+    <rect x="0" y="0" width="180" height="180" rx="40" fill="#2C2E33"/>
+    <rect x="210" y="0" width="180" height="180" rx="40" fill="#2C2E33"/>
+    <rect x="420" y="0" width="180" height="180" rx="40" fill="#00D2FF"/> <!-- Highlighted Goal -->
+    
+    <!-- Row 2 -->
+    <rect x="0" y="210" width="180" height="180" rx="40" fill="#2C2E33"/>
+    <rect x="210" y="210" width="180" height="180" rx="40" fill="#00D2FF" fill-opacity="0.5"/> <!-- Progress -->
+    <rect x="420" y="210" width="180" height="180" rx="40" fill="#2C2E33"/>
+    
+    <!-- Row 3 -->
+    <rect x="0" y="420" width="180" height="180" rx="40" fill="#2C2E33"/>
+    <rect x="210" y="420" width="180" height="180" rx="40" fill="#2C2E33"/>
+    <rect x="420" y="420" width="180" height="180" rx="40" fill="#2C2E33"/>
+  </g>
+  
+  <!-- Subtle Glow Effect -->
+  <defs>
+    <filter id="filter0_f" x="350" y="150" width="400" height="400" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+      <feGaussianBlur stdDeviation="40" result="effect1_foregroundBlur"/>
+    </filter>
+  </defs>
+  <rect x="632" y="212" width="180" height="180" rx="90" fill="#00D2FF" fill-opacity="0.2" filter="url(#filter0_f)"/>
+</svg>
