@@ -3,8 +3,10 @@
     import { onMount } from "svelte";
     import { page } from "$app/stores";
     import { CalendarCheck, ListTodo, Settings } from "@lucide/svelte";
+    import { listen } from "@tauri-apps/api/event";
     import {
         initHabits,
+        refreshHabits,
         checkAndResetIfNewDay,
         refreshHistory,
     } from "$lib/habits";
@@ -23,9 +25,19 @@
         refreshHistory();
         window.addEventListener("focus", checkAndResetIfNewDay);
         const interval = setInterval(checkAndResetIfNewDay, 60_000);
+
+        let unlistenHabitsChanged: (() => void) | undefined;
+        listen("habits-changed", async () => {
+            await refreshHabits();
+            await refreshHistory();
+        }).then((fn) => {
+            unlistenHabitsChanged = fn;
+        });
+
         return () => {
             window.removeEventListener("focus", checkAndResetIfNewDay);
             clearInterval(interval);
+            unlistenHabitsChanged?.();
         };
     });
 
