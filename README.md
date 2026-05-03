@@ -50,6 +50,14 @@ bun tauri dev
 bun tauri build
 ```
 
+### macOS — "damaged and can't be opened"
+
+Downloaded builds are blocked by Gatekeeper because the app isn't notarized. Strip the quarantine attribute to fix it:
+
+```bash
+xattr -cr /Applications/enhabitz.app
+```
+
 ## Recommended IDE
 
 VS Code with the [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode), [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode), and [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer) extensions.
