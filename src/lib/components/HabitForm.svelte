@@ -18,7 +18,7 @@
         oncancel,
     }: {
         habit?: Habit | null;
-        onsubmit: (data: Omit<Habit, "id">) => void;
+        onsubmit: (data: Omit<Habit, "id" | "updatedAt" | "deviceId">) => void;
         oncancel: () => void;
     } = $props();
 
@@ -128,7 +128,7 @@
             isActiveToday: false, // Rust will recompute on next load
         };
 
-        let data: Omit<Habit, "id">;
+        let data: Omit<Habit, "id" | "updatedAt" | "deviceId">;
 
         switch (type) {
             case "todo":

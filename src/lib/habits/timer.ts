@@ -2,7 +2,7 @@ import { find } from "./state.svelte";
 import { saveLog } from "./history.svelte";
 import type { TimerHabit } from "$lib/types";
 
-export function startTimer(id: number) {
+export function startTimer(id: string) {
     const h = find<TimerHabit>(id, "timer");
     if (!h) return;
     // Offset startedAt so Date.now() - startedAt always equals total elapsed ms
@@ -10,7 +10,7 @@ export function startTimer(id: number) {
     h.isRunning = true;
 }
 
-export function stopTimer(id: number) {
+export function stopTimer(id: string) {
     const h = find<TimerHabit>(id, "timer");
     if (!h) return;
     if (h.startedAt !== undefined) {
@@ -21,7 +21,7 @@ export function stopTimer(id: number) {
     saveLog(h);
 }
 
-export function setTimerElapsed(id: number, seconds: number) {
+export function setTimerElapsed(id: string, seconds: number) {
     const h = find<TimerHabit>(id, "timer");
     if (!h) return;
     h.secondsElapsed = Math.max(0, seconds);
@@ -29,7 +29,7 @@ export function setTimerElapsed(id: number, seconds: number) {
     saveLog(h);
 }
 
-export function resetTimer(id: number) {
+export function resetTimer(id: string) {
     const h = find<TimerHabit>(id, "timer");
     if (!h) return;
     h.secondsElapsed = 0;

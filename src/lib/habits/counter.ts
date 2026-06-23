@@ -2,7 +2,7 @@ import { find } from "./state.svelte";
 import { saveLog } from "./history.svelte";
 import type { CounterHabit } from "$lib/types";
 
-export function increment(id: number) {
+export function increment(id: string) {
     const h = find<CounterHabit>(id, "counter");
     if (!h) return;
     if (h.sets !== undefined) {
@@ -19,7 +19,7 @@ export function increment(id: number) {
     saveLog(h);
 }
 
-export function decrement(id: number) {
+export function decrement(id: string) {
     const h = find<CounterHabit>(id, "counter");
     if (!h) return;
     if (h.count > 0) {
@@ -31,7 +31,7 @@ export function decrement(id: number) {
     saveLog(h);
 }
 
-export function setCount(id: number, count: number, completedSets?: number) {
+export function setCount(id: string, count: number, completedSets?: number) {
     const h = find<CounterHabit>(id, "counter");
     if (!h) return;
     h.count = Math.max(0, count);

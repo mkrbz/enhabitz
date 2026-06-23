@@ -1,6 +1,6 @@
 mod db;
 
-use db::{DayEntry, Db, HabitData, HabitRecord, LogData};
+use db::{get_or_create_device_id, DayEntry, Db, HabitData, HabitRecord, LogData};
 use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -36,7 +36,7 @@ fn load_habits(state: tauri::State<'_, DbState>) -> Result<Vec<HabitRecord>, Str
 }
 
 #[tauri::command]
-fn add_habit(state: tauri::State<'_, DbState>, data: HabitData) -> Result<i64, String> {
+fn add_habit(state: tauri::State<'_, DbState>, data: HabitData) -> Result<String, String> {
     state
         .0
         .lock()
@@ -46,22 +46,22 @@ fn add_habit(state: tauri::State<'_, DbState>, data: HabitData) -> Result<i64, S
 }
 
 #[tauri::command]
-fn update_habit(state: tauri::State<'_, DbState>, id: i64, data: HabitData) -> Result<(), String> {
+fn update_habit(state: tauri::State<'_, DbState>, id: String, data: HabitData) -> Result<(), String> {
     state
         .0
         .lock()
         .unwrap()
-        .update_habit(id, data)
+        .update_habit(&id, data)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn delete_habit(state: tauri::State<'_, DbState>, id: i64) -> Result<(), String> {
+fn delete_habit(state: tauri::State<'_, DbState>, id: String) -> Result<(), String> {
     state
         .0
         .lock()
         .unwrap()
-        .delete_habit(id)
+        .delete_habit(&id)
         .map_err(|e| e.to_string())
 }
 
@@ -355,7 +355,8 @@ pub fn run() {
             // ── Database ──────────────────────────────────────────────────────
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
-            let db = Db::new(&data_dir.join("enhabitz.db"))
+            let device_id = get_or_create_device_id(&data_dir)?;
+            let db = Db::new(&data_dir.join("enhabitz.db"), device_id)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
             app.manage(DbState(Mutex::new(db)));
 

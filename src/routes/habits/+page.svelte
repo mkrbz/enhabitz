@@ -13,7 +13,7 @@
     import { Pencil, Trash2, Plus } from "@lucide/svelte";
 
     let dialogOpen = $state(false);
-    let confirmDeleteId = $state<number | null>(null);
+    let confirmDeleteId = $state<string | null>(null);
     let editingHabit = $state<Habit | null>(null);
     let showDrafts = $state(true);
 
@@ -31,7 +31,7 @@
         dialogOpen = true;
     }
 
-    function handleSubmit(data: Omit<Habit, "id">) {
+    function handleSubmit(data: Omit<Habit, "id" | "updatedAt" | "deviceId">) {
         if (editingHabit) {
             replaceHabit(editingHabit.id, data);
         } else {
@@ -40,7 +40,7 @@
         dialogOpen = false;
     }
 
-    function confirmDelete(id: number) {
+    function confirmDelete(id: string) {
         confirmDeleteId = id;
     }
 

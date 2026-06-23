@@ -4,7 +4,7 @@ import type { Habit, TodoHabit, CounterHabit, TimerHabit, CounterTimerHabit, Rep
 // ─── Wire types (mirror Rust HabitRecord / HabitData / LogData) ───────────────
 
 interface HabitRecord {
-    id: number;
+    id: string;
     type: Habit["type"];
     label: string;
     // counter
@@ -21,6 +21,9 @@ interface HabitRecord {
     repeat_days: string | null; // JSON-encoded number[]
     repeat_every: number | null;
     is_active_today: boolean;
+    // sync metadata
+    updated_at: number;
+    device_id: string;
     // today's log
     done: boolean | null;
     count: number | null;
@@ -46,7 +49,7 @@ interface HabitData {
 }
 
 interface LogData {
-    habit_id: number;
+    habit_id: string;
     done: boolean | null;
     count: number | null;
     completed_sets: number | null;
@@ -62,15 +65,15 @@ export async function dbLoadHabits(): Promise<Habit[]> {
     return records.map(recordToHabit);
 }
 
-export async function dbAddHabit(habit: Omit<Habit, "id">): Promise<number> {
-    return invoke<number>("add_habit", { data: habitToData(habit) });
+export async function dbAddHabit(habit: Omit<Habit, "id" | "updatedAt" | "deviceId">): Promise<string> {
+    return invoke<string>("add_habit", { data: habitToData(habit) });
 }
 
-export async function dbUpdateHabit(id: number, habit: Omit<Habit, "id">): Promise<void> {
+export async function dbUpdateHabit(id: string, habit: Omit<Habit, "id" | "updatedAt" | "deviceId">): Promise<void> {
     return invoke("update_habit", { id, data: habitToData(habit) });
 }
 
-export async function dbDeleteHabit(id: number): Promise<void> {
+export async function dbDeleteHabit(id: string): Promise<void> {
     return invoke("delete_habit", { id });
 }
 
@@ -91,6 +94,8 @@ function recordToHabit(r: HabitRecord): Habit {
         repeatDays: r.repeat_days ? JSON.parse(r.repeat_days) : null,
         repeatEvery: r.repeat_every,
         isActiveToday: r.is_active_today,
+        updatedAt: r.updated_at,
+        deviceId: r.device_id,
     };
     const base = { id: r.id, label: r.label, ...schedule };
     switch (r.type) {
@@ -123,7 +128,7 @@ function recordToHabit(r: HabitRecord): Habit {
     }
 }
 
-function habitToData(habit: Omit<Habit, "id">): HabitData {
+function habitToData(habit: Omit<Habit, "id" | "updatedAt" | "deviceId">): HabitData {
     return {
         type: habit.type,
         label: habit.label,

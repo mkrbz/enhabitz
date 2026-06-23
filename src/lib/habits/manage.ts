@@ -25,7 +25,7 @@ export async function initHabits(): Promise<void> {
 
 // Reload from DB while preserving running timer state in this window.
 export async function refreshHabits(): Promise<void> {
-    const runningState = new Map<number, number>();
+    const runningState = new Map<string, number>();
     for (const h of habits) {
         if ((h.type === "timer" || h.type === "counter-timer") && h.isRunning && h.startedAt !== undefined) {
             runningState.set(h.id, h.startedAt);
@@ -54,20 +54,21 @@ export async function checkAndResetIfNewDay(): Promise<void> {
 
 // ─── CRUD ─────────────────────────────────────────────────────────────────────
 
-export async function addHabit(habit: Omit<Habit, "id">): Promise<void> {
-    const id = await dbAddHabit(habit);
-    habits.push({ ...habit, id } as Habit);
+export async function addHabit(habit: Omit<Habit, "id" | "updatedAt" | "deviceId">): Promise<void> {
+    await dbAddHabit(habit);
+    // Reload from DB so the sync metadata Rust just assigned (id, updatedAt, deviceId) is accurate
+    await initHabits();
     emitHabitsChanged();
 }
 
-export async function replaceHabit(id: number, habit: Omit<Habit, "id">): Promise<void> {
+export async function replaceHabit(id: string, habit: Omit<Habit, "id" | "updatedAt" | "deviceId">): Promise<void> {
     await dbUpdateHabit(id, habit);
     // Reload from DB so today's progress is preserved alongside the new definition
     await initHabits();
     emitHabitsChanged();
 }
 
-export async function deleteHabit(id: number): Promise<void> {
+export async function deleteHabit(id: string): Promise<void> {
     await dbDeleteHabit(id);
     const idx = habits.findIndex((h) => h.id === id);
     if (idx !== -1) habits.splice(idx, 1);

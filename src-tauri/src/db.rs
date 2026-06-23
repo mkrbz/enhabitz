@@ -1,10 +1,13 @@
 use chrono::Datelike;
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
+use uuid::Uuid;
 
 pub struct Db {
     conn: Connection,
+    device_id: String,
 }
 
 // ─── Wire types (flat, matches SQL schema) ────────────────────────────────────
@@ -12,7 +15,7 @@ pub struct Db {
 /// Returned by load_habits — flat row with nullable fields per type.
 #[derive(Serialize)]
 pub struct HabitRecord {
-    pub id: i64,
+    pub id: String,
     #[serde(rename = "type")]
     pub habit_type: String,
     pub label: String,
@@ -30,6 +33,9 @@ pub struct HabitRecord {
     pub repeat_days: Option<String>,
     pub repeat_every: Option<i64>,
     pub is_active_today: bool,
+    // sync metadata — see tasks/14-multi-device-sync-schema.md in enhabitz-mobile
+    pub updated_at: i64,
+    pub device_id: String,
     // today's log — all nullable (no log yet = defaults on frontend)
     pub done: Option<bool>,
     pub count: Option<i64>,
@@ -67,7 +73,7 @@ pub struct DayEntry {
 /// Sent by frontend after every progress mutation.
 #[derive(Deserialize)]
 pub struct LogData {
-    pub habit_id: i64,
+    pub habit_id: String,
     pub done: Option<bool>,
     pub count: Option<i64>,
     pub completed_sets: Option<i64>,
@@ -130,15 +136,41 @@ fn is_active_today(
     }
 }
 
+fn now_millis() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+/// Reads `device_id.txt` from the app data dir, creating a fresh UUID v4 the
+/// first time. Mirrors `DeviceIdentity` in enhabitz-mobile — a stable per-install
+/// id written into every row this install touches (see
+/// tasks/14-multi-device-sync-schema.md in enhabitz-mobile).
+pub fn get_or_create_device_id(data_dir: &Path) -> std::io::Result<String> {
+    let path = data_dir.join("device_id.txt");
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        let trimmed = existing.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+    let id = Uuid::new_v4().to_string();
+    std::fs::write(&path, &id)?;
+    Ok(id)
+}
+
 // ─── Db impl ──────────────────────────────────────────────────────────────────
 
 impl Db {
-    pub fn new(path: &Path) -> Result<Self> {
+    pub fn new(path: &Path, device_id: String) -> Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
-        let db = Self { conn };
+        let db = Self { conn, device_id };
         db.init_schema()?;
         db.migrate()?;
+        // Indexes are created last, not inside init_schema/migrate_to_uuid_ids: on an
+        // upgrade from a pre-sync database, `habits`/`habit_logs` only gain the
+        // `updated_at` column once migrate() has run, so indexing it any earlier would
+        // fail with "no such column" on every install except a brand new one.
+        db.ensure_indexes()?;
         Ok(db)
     }
 
@@ -146,7 +178,7 @@ impl Db {
         self.conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS habits (
-                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                id                TEXT PRIMARY KEY,
                 type              TEXT NOT NULL,
                 label             TEXT NOT NULL,
                 sort_order        INTEGER NOT NULL DEFAULT 0,
@@ -154,11 +186,18 @@ impl Db {
                 sets              INTEGER,
                 target_seconds    INTEGER,
                 rounds            INTEGER,
-                seconds_per_round INTEGER
+                seconds_per_round INTEGER,
+                start_date        TEXT,
+                repeat_type       TEXT NOT NULL DEFAULT 'daily',
+                repeat_days       TEXT,
+                repeat_every      INTEGER,
+                updated_at        INTEGER NOT NULL,
+                deleted_at        INTEGER,
+                device_id         TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS habit_logs (
-                habit_id              INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+                habit_id              TEXT NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
                 date                  TEXT NOT NULL,
                 done                  INTEGER,
                 count                 INTEGER,
@@ -166,9 +205,20 @@ impl Db {
                 seconds_elapsed       INTEGER,
                 current_round         INTEGER,
                 round_seconds_elapsed INTEGER,
+                updated_at            INTEGER NOT NULL,
+                device_id             TEXT NOT NULL,
                 PRIMARY KEY (habit_id, date)
             );
         ",
+        )
+    }
+
+    fn ensure_indexes(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "
+            CREATE INDEX IF NOT EXISTS idx_habits_updated_at ON habits(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_habit_logs_updated_at ON habit_logs(updated_at);
+            ",
         )
     }
 
@@ -191,6 +241,146 @@ impl Db {
             )?;
         }
 
+        if version < 2 {
+            self.migrate_to_uuid_ids()?;
+            self.conn.execute_batch("PRAGMA user_version = 2;")?;
+        }
+
+        Ok(())
+    }
+
+    /// Rebuilds `habits`/`habit_logs` with TEXT (UUID) ids plus the sync
+    /// metadata columns (`updated_at`, `deleted_at`, `device_id`), matching
+    /// enhabitz-mobile's schema column-for-column — see
+    /// tasks/14-multi-device-sync-schema.md in that repo. `INTEGER PRIMARY KEY
+    /// AUTOINCREMENT` ids are local to one SQLite file, so two devices would
+    /// independently produce colliding ids; a sync engine needs globally
+    /// unique ids before it can merge two devices' data at all. SQLite can't
+    /// ALTER a column's type or generate UUIDs in SQL, so the rename/rebuild
+    /// happens here in Rust, one row at a time, with an explicit
+    /// old-id → new-id map used to re-point `habit_logs.habit_id`.
+    fn migrate_to_uuid_ids(&self) -> Result<()> {
+        let now = now_millis();
+
+        self.conn.execute_batch(
+            "
+            ALTER TABLE habits RENAME TO habits_v1;
+            ALTER TABLE habit_logs RENAME TO habit_logs_v1;
+
+            CREATE TABLE habits (
+                id                TEXT PRIMARY KEY,
+                type              TEXT NOT NULL,
+                label             TEXT NOT NULL,
+                sort_order        INTEGER NOT NULL DEFAULT 0,
+                target            INTEGER,
+                sets              INTEGER,
+                target_seconds    INTEGER,
+                rounds            INTEGER,
+                seconds_per_round INTEGER,
+                start_date        TEXT,
+                repeat_type       TEXT NOT NULL DEFAULT 'daily',
+                repeat_days       TEXT,
+                repeat_every      INTEGER,
+                updated_at        INTEGER NOT NULL,
+                deleted_at        INTEGER,
+                device_id         TEXT NOT NULL
+            );
+
+            CREATE TABLE habit_logs (
+                habit_id              TEXT NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+                date                  TEXT NOT NULL,
+                done                  INTEGER,
+                count                 INTEGER,
+                completed_sets        INTEGER,
+                seconds_elapsed       INTEGER,
+                current_round         INTEGER,
+                round_seconds_elapsed INTEGER,
+                updated_at            INTEGER NOT NULL,
+                device_id             TEXT NOT NULL,
+                PRIMARY KEY (habit_id, date)
+            );
+            ",
+        )?;
+
+        let mut id_map: HashMap<i64, String> = HashMap::new();
+        {
+            let mut select = self.conn.prepare(
+                "SELECT id, type, label, sort_order, target, sets, target_seconds, rounds,
+                        seconds_per_round, start_date, repeat_type, repeat_days, repeat_every
+                 FROM habits_v1",
+            )?;
+            let mut insert = self.conn.prepare(
+                "INSERT INTO habits
+                    (id, type, label, sort_order, target, sets, target_seconds, rounds,
+                     seconds_per_round, start_date, repeat_type, repeat_days, repeat_every,
+                     updated_at, deleted_at, device_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15)",
+            )?;
+
+            let mut rows = select.query([])?;
+            while let Some(row) = rows.next()? {
+                let old_id: i64 = row.get(0)?;
+                let new_id = Uuid::new_v4().to_string();
+                id_map.insert(old_id, new_id.clone());
+
+                insert.execute(params![
+                    new_id,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
+                    row.get::<_, Option<i64>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, String>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                    row.get::<_, Option<i64>>(12)?,
+                    now,
+                    self.device_id,
+                ])?;
+            }
+        }
+
+        {
+            let mut select = self.conn.prepare(
+                "SELECT habit_id, date, done, count, completed_sets, seconds_elapsed,
+                        current_round, round_seconds_elapsed
+                 FROM habit_logs_v1",
+            )?;
+            let mut insert = self.conn.prepare(
+                "INSERT INTO habit_logs
+                    (habit_id, date, done, count, completed_sets, seconds_elapsed,
+                     current_round, round_seconds_elapsed, updated_at, device_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            )?;
+
+            let mut rows = select.query([])?;
+            while let Some(row) = rows.next()? {
+                let old_habit_id: i64 = row.get(0)?;
+                let Some(new_habit_id) = id_map.get(&old_habit_id) else {
+                    continue; // orphaned log row with no matching habit — drop it
+                };
+
+                insert.execute(params![
+                    new_habit_id,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
+                    now,
+                    self.device_id,
+                ])?;
+            }
+        }
+
+        self.conn
+            .execute_batch("DROP TABLE habits_v1; DROP TABLE habit_logs_v1;")?;
+
         Ok(())
     }
 
@@ -200,11 +390,13 @@ impl Db {
             SELECT h.id, h.type, h.label, h.target, h.sets, h.target_seconds,
                    h.rounds, h.seconds_per_round,
                    h.start_date, h.repeat_type, h.repeat_days, h.repeat_every,
+                   h.updated_at, h.device_id,
                    l.done, l.count, l.completed_sets, l.seconds_elapsed,
                    l.current_round, l.round_seconds_elapsed
             FROM habits h
             LEFT JOIN habit_logs l
                 ON l.habit_id = h.id AND l.date = date('now', 'localtime')
+            WHERE h.deleted_at IS NULL
             ORDER BY h.sort_order, h.id
         ",
         )?;
@@ -230,26 +422,31 @@ impl Db {
                 repeat_days,
                 repeat_every,
                 is_active_today: active,
-                done: row.get::<_, Option<i64>>(12)?.map(|v| v != 0),
-                count: row.get(13)?,
-                completed_sets: row.get(14)?,
-                seconds_elapsed: row.get(15)?,
-                current_round: row.get(16)?,
-                round_seconds_elapsed: row.get(17)?,
+                updated_at: row.get(12)?,
+                device_id: row.get(13)?,
+                done: row.get::<_, Option<i64>>(14)?.map(|v| v != 0),
+                count: row.get(15)?,
+                completed_sets: row.get(16)?,
+                seconds_elapsed: row.get(17)?,
+                current_round: row.get(18)?,
+                round_seconds_elapsed: row.get(19)?,
             })
         })?;
 
         rows.collect()
     }
 
-    pub fn add_habit(&self, data: HabitData) -> Result<i64> {
+    pub fn add_habit(&self, data: HabitData) -> Result<String> {
+        let id = Uuid::new_v4().to_string();
+        let now = now_millis();
         self.conn.execute(
             "INSERT INTO habits
-                (type, label, sort_order, target, sets, target_seconds, rounds, seconds_per_round,
-                 start_date, repeat_type, repeat_days, repeat_every)
-             VALUES (?1, ?2, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM habits),
-                     ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                (id, type, label, sort_order, target, sets, target_seconds, rounds, seconds_per_round,
+                 start_date, repeat_type, repeat_days, repeat_every, updated_at, device_id)
+             VALUES (?1, ?2, ?3, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM habits),
+                     ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
+                id,
                 data.habit_type,
                 data.label,
                 data.target,
@@ -261,18 +458,22 @@ impl Db {
                 data.repeat_type,
                 data.repeat_days,
                 data.repeat_every,
+                now,
+                self.device_id,
             ],
         )?;
-        Ok(self.conn.last_insert_rowid())
+        Ok(id)
     }
 
-    pub fn update_habit(&self, id: i64, data: HabitData) -> Result<()> {
+    pub fn update_habit(&self, id: &str, data: HabitData) -> Result<()> {
+        let now = now_millis();
         self.conn.execute(
             "UPDATE habits SET
                 type = ?1, label = ?2, target = ?3, sets = ?4,
                 target_seconds = ?5, rounds = ?6, seconds_per_round = ?7,
-                start_date = ?8, repeat_type = ?9, repeat_days = ?10, repeat_every = ?11
-             WHERE id = ?12",
+                start_date = ?8, repeat_type = ?9, repeat_days = ?10, repeat_every = ?11,
+                updated_at = ?12, device_id = ?13
+             WHERE id = ?14",
             params![
                 data.habit_type,
                 data.label,
@@ -285,6 +486,8 @@ impl Db {
                 data.repeat_type,
                 data.repeat_days,
                 data.repeat_every,
+                now,
+                self.device_id,
                 id,
             ],
         )?;
@@ -297,12 +500,13 @@ impl Db {
             SELECT l.date, h.label
             FROM habit_logs l
             JOIN habits h ON h.id = l.habit_id
-            WHERE
+            WHERE h.deleted_at IS NULL AND (
                 (h.type = 'todo'          AND l.done = 1) OR
                 (h.type = 'counter'       AND h.sets IS NULL     AND l.count >= h.target) OR
                 (h.type = 'counter'       AND h.sets IS NOT NULL AND l.completed_sets >= h.sets) OR
                 (h.type = 'timer'         AND l.seconds_elapsed >= h.target_seconds) OR
                 (h.type = 'counter-timer' AND l.current_round >= h.rounds)
+            )
             ORDER BY l.date, h.label
             ",
         )?;
@@ -315,23 +519,35 @@ impl Db {
         rows.collect()
     }
 
-    pub fn delete_habit(&self, id: i64) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM habits WHERE id = ?1", params![id])?;
+    /// Soft-delete — NOT a real `DELETE`, so the removal can propagate to other
+    /// devices once a sync engine exists (see tasks/14-multi-device-sync-schema.md
+    /// in enhabitz-mobile). A hard `DELETE` is invisible to a device that hasn't
+    /// synced yet — there's no row left to tell it "this was removed".
+    pub fn delete_habit(&self, id: &str) -> Result<()> {
+        let now = now_millis();
+        self.conn.execute(
+            "UPDATE habits SET deleted_at = ?1, updated_at = ?1, device_id = ?2 WHERE id = ?3",
+            params![now, self.device_id, id],
+        )?;
         Ok(())
     }
 
     pub fn save_log(&self, log: LogData) -> Result<()> {
+        let now = now_millis();
         self.conn.execute(
-            "INSERT INTO habit_logs (habit_id, date, done, count, completed_sets, seconds_elapsed, current_round, round_seconds_elapsed)
-             VALUES (?1, date('now', 'localtime'), ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO habit_logs
+                (habit_id, date, done, count, completed_sets, seconds_elapsed,
+                 current_round, round_seconds_elapsed, updated_at, device_id)
+             VALUES (?1, date('now', 'localtime'), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT (habit_id, date) DO UPDATE SET
                  done = excluded.done,
                  count = excluded.count,
                  completed_sets = excluded.completed_sets,
                  seconds_elapsed = excluded.seconds_elapsed,
                  current_round = excluded.current_round,
-                 round_seconds_elapsed = excluded.round_seconds_elapsed",
+                 round_seconds_elapsed = excluded.round_seconds_elapsed,
+                 updated_at = excluded.updated_at,
+                 device_id = excluded.device_id",
             params![
                 log.habit_id,
                 log.done.map(|b| if b { 1i64 } else { 0 }),
@@ -340,6 +556,8 @@ impl Db {
                 log.seconds_elapsed,
                 log.current_round,
                 log.round_seconds_elapsed,
+                now,
+                self.device_id,
             ],
         )?;
         Ok(())

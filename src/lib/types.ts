@@ -2,7 +2,7 @@ export type HabitType = "todo" | "counter" | "timer" | "counter-timer";
 export type RepeatType = "daily" | "weekly" | "monthly" | "interval";
 
 export interface BaseHabit {
-    id: number;
+    id: string;                     // UUID v4
     type: HabitType;
     label: string;
     // Scheduling — null startDate means draft/idea
@@ -11,6 +11,9 @@ export interface BaseHabit {
     repeatDays: number[] | null;    // weekly: 0–6 (Sun=0), monthly: 1–31
     repeatEvery: number | null;     // interval: every N days
     isActiveToday: boolean;         // computed by Rust
+    // Sync metadata — see tasks/14-multi-device-sync-schema.md in enhabitz-mobile
+    updatedAt: number;              // epoch millis UTC
+    deviceId: string;
 }
 
 export interface TodoHabit extends BaseHabit {

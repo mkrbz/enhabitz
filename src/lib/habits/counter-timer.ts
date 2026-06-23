@@ -6,14 +6,14 @@ function totalElapsedSeconds(h: CounterTimerHabit): number {
     return h.currentRound * h.secondsPerRound + h.roundSecondsElapsed;
 }
 
-export function startCounterTimer(id: number) {
+export function startCounterTimer(id: string) {
     const h = find<CounterTimerHabit>(id, "counter-timer");
     if (!h || h.currentRound >= h.rounds) return;
     h.startedAt = Date.now() - totalElapsedSeconds(h) * 1000;
     h.isRunning = true;
 }
 
-export function stopCounterTimer(id: number) {
+export function stopCounterTimer(id: string) {
     const h = find<CounterTimerHabit>(id, "counter-timer");
     if (!h) return;
     if (h.startedAt !== undefined) {
@@ -28,7 +28,7 @@ export function stopCounterTimer(id: number) {
     saveLog(h);
 }
 
-export function setCounterTimerRound(id: number, round: number) {
+export function setCounterTimerRound(id: string, round: number) {
     const h = find<CounterTimerHabit>(id, "counter-timer");
     if (!h) return;
     h.currentRound = Math.max(0, Math.min(round, h.rounds));
@@ -42,7 +42,7 @@ export function setCounterTimerRound(id: number, round: number) {
     saveLog(h);
 }
 
-export function resetCounterTimer(id: number) {
+export function resetCounterTimer(id: string) {
     const h = find<CounterTimerHabit>(id, "counter-timer");
     if (!h) return;
     h.currentRound = 0;
