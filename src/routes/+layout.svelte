@@ -57,7 +57,7 @@
 {:else}
     <div class="flex flex-col h-screen">
         <header
-            class="border-b border-border px-4 py-3 flex items-center justify-between shrink-0"
+            class="border-b border-border px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] flex items-center justify-between shrink-0"
         >
             <span class="font-bold tracking-tight">Enhabitz</span>
             <nav class="flex gap-1">
@@ -79,7 +79,7 @@
             </nav>
         </header>
 
-        <div class="flex-1 overflow-y-auto">
+        <div class="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
             {@render children()}
         </div>
     </div>

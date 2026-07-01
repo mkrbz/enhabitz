@@ -1,5 +1,5 @@
 use chrono::Datelike;
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -159,19 +159,47 @@ pub fn get_or_create_device_id(data_dir: &Path) -> std::io::Result<String> {
 
 // ─── Db impl ──────────────────────────────────────────────────────────────────
 
+/// Schema version produced by `init_schema()` — kept in sync with the last
+/// `PRAGMA user_version` that `migrate()` sets.
+const LATEST_SCHEMA_VERSION: i64 = 2;
+
 impl Db {
     pub fn new(path: &Path, device_id: String) -> Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        // Must be checked before init_schema() runs, since CREATE TABLE IF NOT
+        // EXISTS would otherwise make every database look pre-existing.
+        let is_fresh = !Self::table_exists(&conn, "habits")?;
         let db = Self { conn, device_id };
         db.init_schema()?;
-        db.migrate()?;
+        if is_fresh {
+            // init_schema() already creates the latest schema (UUID ids, sync
+            // columns, all of it), so a brand-new database has nothing to
+            // migrate. Running migrate() anyway would hit `ALTER TABLE ADD
+            // COLUMN start_date` on a column init_schema already created,
+            // aborting the whole process on first launch.
+            db.conn.execute_batch(&format!(
+                "PRAGMA user_version = {LATEST_SCHEMA_VERSION};"
+            ))?;
+        } else {
+            db.migrate()?;
+        }
         // Indexes are created last, not inside init_schema/migrate_to_uuid_ids: on an
         // upgrade from a pre-sync database, `habits`/`habit_logs` only gain the
         // `updated_at` column once migrate() has run, so indexing it any earlier would
         // fail with "no such column" on every install except a brand new one.
         db.ensure_indexes()?;
         Ok(db)
+    }
+
+    fn table_exists(conn: &Connection, name: &str) -> Result<bool> {
+        conn.query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [name],
+            |_| Ok(()),
+        )
+        .optional()
+        .map(|row| row.is_some())
     }
 
     fn init_schema(&self) -> Result<()> {

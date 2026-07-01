@@ -18,14 +18,21 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 chrono = "0.4.44"
-tauri-plugin-global-shortcut = "2"
 uuid = { version = "1.23.3", features = ["v4"] }
+
+# Tray icon and global shortcuts aren't concepts on mobile (see lib.rs's
+# #[cfg(desktop)] gates) — keeping these crates out of the Android/iOS
+# dependency graph entirely avoids compiling and linking their native
+# platform backends into the APK for functionality that can never run there.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"

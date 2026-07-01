@@ -2,17 +2,23 @@ mod db;
 
 use db::{get_or_create_device_id, DayEntry, Db, HabitData, HabitRecord, LogData};
 use std::sync::Mutex;
+use tauri::Manager;
+#[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WebviewWindow,
+    WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
+#[cfg(desktop)]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 pub struct DbState(pub Mutex<Db>);
 
 /// Tracks which shortcuts are using the Hyprland backend.
 /// None = plugin backend active, Some(shortcut) = Hyprland backend active.
+/// Global shortcuts don't exist as a concept on mobile, so this whole
+/// tracking structure is desktop-only.
+#[cfg(desktop)]
 pub struct HyprlandBackend {
     pub widget: Mutex<Option<String>>,
     pub main: Mutex<Option<String>>,
@@ -92,6 +98,7 @@ fn get_shortcut(app: tauri::AppHandle, target: String) -> String {
     read_shortcut(&app, &target)
 }
 
+#[cfg(desktop)]
 #[tauri::command]
 fn set_shortcut(app: tauri::AppHandle, target: String, shortcut: String) -> Result<(), String> {
     let shortcut = shortcut.trim().to_string();
@@ -136,6 +143,15 @@ fn set_shortcut(app: tauri::AppHandle, target: String, shortcut: String) -> Resu
     Ok(())
 }
 
+/// Global OS-level hotkeys aren't a concept on mobile — keep the command
+/// callable from the frontend (same signature) so a single invoke() call
+/// works on every platform, just report that it's unsupported here.
+#[cfg(not(desktop))]
+#[tauri::command]
+fn set_shortcut(_app: tauri::AppHandle, _target: String, _shortcut: String) -> Result<(), String> {
+    Err("Global shortcuts are not supported on this platform".into())
+}
+
 // ─── Shortcut helpers ─────────────────────────────────────────────────────────
 
 fn shortcut_file(target: &str) -> &'static str {
@@ -165,6 +181,7 @@ fn read_shortcut(app: &tauri::AppHandle, target: &str) -> String {
         .unwrap_or_else(|| default_shortcut(target).to_string())
 }
 
+#[cfg(desktop)]
 fn write_shortcut(app: &tauri::AppHandle, target: &str, shortcut: &str) -> Result<(), String> {
     let path = app
         .path()
@@ -174,6 +191,7 @@ fn write_shortcut(app: &tauri::AppHandle, target: &str, shortcut: &str) -> Resul
     std::fs::write(path, shortcut).map_err(|e| e.to_string())
 }
 
+#[cfg(desktop)]
 fn register_plugin_shortcut(
     app: &tauri::AppHandle,
     shortcut: &str,
@@ -299,8 +317,11 @@ fn set_dock_visible(visible: bool) {
     }
 }
 
-// ─── Window helpers ───────────────────────────────────────────────────────────
+// ─── Window helpers (desktop only — show/hide/focus/position aren't part of
+// the mobile WebviewWindow API, and the floating "widget" window itself only
+// exists on desktop, see tauri.android.conf.json) ──────────────────────────
 
+#[cfg(desktop)]
 fn toggle_widget(app: &tauri::AppHandle) {
     let Some(widget) = app.get_webview_window("widget") else {
         return;
@@ -314,6 +335,7 @@ fn toggle_widget(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(desktop)]
 fn toggle_main(app: &tauri::AppHandle) {
     let Some(main) = app.get_webview_window("main") else {
         return;
@@ -330,6 +352,7 @@ fn toggle_main(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(desktop)]
 fn position_widget(window: &WebviewWindow) {
     let Ok(Some(monitor)) = window.primary_monitor() else {
         return;
@@ -348,9 +371,15 @@ fn position_widget(window: &WebviewWindow) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+
+    // Global shortcuts aren't a platform concept on mobile, and the plugin
+    // doesn't even expose this API there — see tasks/02 in the repo's
+    // tasks/ folder for the full Android-optimization writeup.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
+    builder
         .setup(|app| {
             // ── Database ──────────────────────────────────────────────────────
             let data_dir = app.path().app_data_dir()?;
@@ -360,90 +389,121 @@ pub fn run() {
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
             app.manage(DbState(Mutex::new(db)));
 
-            // ── Global shortcuts ──────────────────────────────────────────────
-            let widget_sc = read_shortcut(app.handle(), "widget");
-            let main_sc = read_shortcut(app.handle(), "main");
-
-            #[allow(unused_mut)]
-            let mut widget_hypr = false;
-            #[allow(unused_mut)]
-            let mut main_hypr = false;
-
-            #[cfg(target_os = "linux")]
-            if is_hyprland() {
-                // Unbind first to clear stale binds from previous runs —
-                // hyprctl keyword bind accumulates entries, so without this
-                // each restart adds another duplicate that fires on keypress.
-                hyprland_unbind(&widget_sc);
-                hyprland_unbind(&main_sc);
-                widget_hypr = hyprland_bind(&widget_sc, HYPRLAND_WIDGET_FLAG);
-                main_hypr = hyprland_bind(&main_sc, HYPRLAND_MAIN_FLAG);
-                if widget_hypr || main_hypr {
-                    start_hyprland_watcher(app.handle().clone());
-                }
+            // ── Widget window (desktop only — built here instead of declared in
+            // tauri.conf.json's static `windows` array, since Tauri instantiates
+            // every entry in that array on every platform. A second live WebView
+            // has no floating-window concept to serve on Android anyway, and
+            // costs idle RAM/CPU just by existing — see tasks/03 in this repo's
+            // tasks/ folder) ─────────────────────────────────────────────────
+            #[cfg(desktop)]
+            {
+                WebviewWindowBuilder::new(app, "widget", WebviewUrl::App("/widget".into()))
+                    .title("enhabitz")
+                    .inner_size(380.0, 540.0)
+                    .decorations(false)
+                    .always_on_top(true)
+                    .visible(false)
+                    .resizable(false)
+                    .skip_taskbar(true)
+                    .shadow(true)
+                    .build()?;
             }
 
-            if !widget_hypr {
-                if let Err(e) = register_plugin_shortcut(app.handle(), &widget_sc, "widget") {
-                    eprintln!("[enhabitz] widget shortcut failed: {}", e);
+            // ── Global shortcuts (desktop only) ───────────────────────────────
+            #[cfg(desktop)]
+            {
+                let widget_sc = read_shortcut(app.handle(), "widget");
+                let main_sc = read_shortcut(app.handle(), "main");
+
+                #[allow(unused_mut)]
+                let mut widget_hypr = false;
+                #[allow(unused_mut)]
+                let mut main_hypr = false;
+
+                #[cfg(target_os = "linux")]
+                if is_hyprland() {
+                    // Unbind first to clear stale binds from previous runs —
+                    // hyprctl keyword bind accumulates entries, so without this
+                    // each restart adds another duplicate that fires on keypress.
+                    hyprland_unbind(&widget_sc);
+                    hyprland_unbind(&main_sc);
+                    widget_hypr = hyprland_bind(&widget_sc, HYPRLAND_WIDGET_FLAG);
+                    main_hypr = hyprland_bind(&main_sc, HYPRLAND_MAIN_FLAG);
+                    if widget_hypr || main_hypr {
+                        start_hyprland_watcher(app.handle().clone());
+                    }
                 }
+
+                if !widget_hypr {
+                    if let Err(e) = register_plugin_shortcut(app.handle(), &widget_sc, "widget") {
+                        eprintln!("[enhabitz] widget shortcut failed: {}", e);
+                    }
+                }
+                if !main_hypr {
+                    if let Err(e) = register_plugin_shortcut(app.handle(), &main_sc, "main") {
+                        eprintln!("[enhabitz] main shortcut failed: {}", e);
+                    }
+                }
+
+                app.manage(HyprlandBackend {
+                    widget: Mutex::new(if widget_hypr { Some(widget_sc) } else { None }),
+                    main: Mutex::new(if main_hypr { Some(main_sc) } else { None }),
+                });
             }
-            if !main_hypr {
-                if let Err(e) = register_plugin_shortcut(app.handle(), &main_sc, "main") {
-                    eprintln!("[enhabitz] main shortcut failed: {}", e);
-                }
+
+            // ── Main window: hide instead of close (desktop only — Android
+            // should follow the normal Activity lifecycle instead of being
+            // pinned resident by a fake "minimize to tray" close handler) ────
+            #[cfg(desktop)]
+            {
+                let main = app.get_webview_window("main").unwrap();
+                let main_clone = main.clone();
+                main.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = main_clone.hide();
+                        #[cfg(target_os = "macos")]
+                        set_dock_visible(false);
+                    }
+                });
             }
 
-            app.manage(HyprlandBackend {
-                widget: Mutex::new(if widget_hypr { Some(widget_sc) } else { None }),
-                main: Mutex::new(if main_hypr { Some(main_sc) } else { None }),
-            });
+            // ── System tray (desktop only — no tray concept on mobile) ────────
+            #[cfg(desktop)]
+            {
+                let widget = MenuItem::with_id(app, "widget", "Toggle Widget", true, None::<&str>)?;
+                let show = MenuItem::with_id(app, "show", "Show Enhabitz", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&widget, &show, &quit])?;
 
-            // ── Main window: hide instead of close ────────────────────────────
-            let main = app.get_webview_window("main").unwrap();
-            let main_clone = main.clone();
-            main.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = main_clone.hide();
-                    #[cfg(target_os = "macos")]
-                    set_dock_visible(false);
-                }
-            });
-
-            // ── System tray ───────────────────────────────────────────────────
-            let widget = MenuItem::with_id(app, "widget", "Toggle Widget", true, None::<&str>)?;
-            let show = MenuItem::with_id(app, "show", "Show Enhabitz", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&widget, &show, &quit])?;
-
-            TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "widget" => toggle_widget(app),
-                    "show" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            #[cfg(target_os = "macos")]
-                            set_dock_visible(true);
-                            let _ = w.show();
-                            let _ = w.set_focus();
+                TrayIconBuilder::new()
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .menu(&menu)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "widget" => toggle_widget(app),
+                        "show" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                #[cfg(target_os = "macos")]
+                                set_dock_visible(true);
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
                         }
-                    }
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        toggle_widget(tray.app_handle());
-                    }
-                })
-                .build(app)?;
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            toggle_widget(tray.app_handle());
+                        }
+                    })
+                    .build(app)?;
+            }
 
             Ok(())
         })
