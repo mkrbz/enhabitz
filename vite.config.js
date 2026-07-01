@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite';
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+// @ts-expect-error process is a nodejs global
+const platform = process.env.TAURI_ENV_PLATFORM ?? "unknown";
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -21,6 +23,14 @@ export default defineConfig(async () => ({
     // Follow symlinks so `bun add file:../svelte-ui` resolves correctly.
     resolve: {
         preserveSymlinks: true,
+    },
+    // Tauri CLI sets TAURI_ENV_PLATFORM before running beforeDevCommand/
+    // beforeBuildCommand specifically so frontend tooling can do conditional
+    // compilation — this becomes a literal at build time, so platform-only
+    // branches (see $lib/platform.ts) get dead-code-eliminated per target by
+    // the production minifier, not just skipped at runtime.
+    define: {
+        __PLATFORM__: JSON.stringify(platform),
     },
     // 1. prevent Vite from obscuring rust errors
     clearScreen: false,

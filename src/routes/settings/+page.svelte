@@ -2,7 +2,15 @@
     import { onMount } from "svelte";
     import { invoke } from "@tauri-apps/api/core";
     import { Button } from "$lib/components/ui/button";
-    import { Keyboard } from "@lucide/svelte";
+    import { Keyboard, Monitor, Sun, Moon, SunMoon } from "@lucide/svelte";
+    import { isDesktop } from "$lib/platform";
+    import { themeStore, type Theme } from "$lib/theme.svelte";
+
+    const THEME_OPTIONS: { value: Theme; label: string; icon: typeof Monitor }[] = [
+        { value: "device", label: "Device", icon: Monitor },
+        { value: "light", label: "Light", icon: Sun },
+        { value: "dark", label: "Dark", icon: Moon },
+    ];
 
     type ShortcutTarget = "widget" | "main";
 
@@ -37,6 +45,10 @@
     });
 
     onMount(async () => {
+        // Global shortcuts aren't a platform concept on mobile — skip the
+        // IPC round-trips entirely rather than fetching values for UI that
+        // isn't shown.
+        if (!isDesktop) return;
         for (const target of ["widget", "main"] as ShortcutTarget[]) {
             const val = await invoke<string>("get_shortcut", { target });
             shortcuts[target].current = val;
@@ -124,11 +136,35 @@
     }
 </script>
 
-<svelte:window onkeydown={keydownHandler} />
+<svelte:window onkeydown={isDesktop ? keydownHandler : undefined} />
 
 <div class="p-6 max-w-lg space-y-8">
     <h1 class="text-xl font-semibold">Settings</h1>
 
+    <section class="space-y-3">
+        <div
+            class="flex items-center gap-2 text-sm font-medium text-muted-foreground uppercase tracking-wider"
+        >
+            <SunMoon class="h-4 w-4" />
+            Theme
+        </div>
+
+        <div class="flex gap-2">
+            {#each THEME_OPTIONS as opt}
+                <Button
+                    variant={themeStore.current === opt.value ? "default" : "outline"}
+                    size="sm"
+                    class="flex-1"
+                    onclick={() => themeStore.set(opt.value)}
+                >
+                    <opt.icon class="h-4 w-4" />
+                    {opt.label}
+                </Button>
+            {/each}
+        </div>
+    </section>
+
+    {#if isDesktop}
     {#each [{ target: "widget" as ShortcutTarget, label: "Widget Shortcut", desc: "Toggle the floating widget." }, { target: "main" as ShortcutTarget, label: "Main Window Shortcut", desc: "Toggle the main Enhabitz window." }] as item}
         {@const sc = shortcuts[item.target]}
         <section class="space-y-3">
@@ -186,4 +222,5 @@
             </p>
         </section>
     {/each}
+    {/if}
 </div>

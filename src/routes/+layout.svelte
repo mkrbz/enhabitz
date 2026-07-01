@@ -2,8 +2,12 @@
     import "../app.css";
     import { onMount } from "svelte";
     import { page } from "$app/stores";
-    import { CalendarCheck, ListTodo, Settings } from "@lucide/svelte";
     import { listen } from "@tauri-apps/api/event";
+    import { isMobile } from "$lib/platform";
+    import { themeStore } from "$lib/theme.svelte";
+    import { NAV } from "$lib/components/nav/nav-items";
+    import DesktopNav from "$lib/components/nav/DesktopNav.svelte";
+    import MobileNav from "$lib/components/nav/MobileNav.svelte";
     import {
         initHabits,
         refreshHabits,
@@ -13,11 +17,8 @@
 
     let { children } = $props();
 
-    let dark = $state(localStorage.getItem("theme") !== "light");
-
     $effect(() => {
-        document.documentElement.classList.toggle("dark", dark);
-        localStorage.setItem("theme", dark ? "dark" : "light");
+        document.documentElement.classList.toggle("dark", themeStore.isDark);
     });
 
     onMount(() => {
@@ -41,12 +42,6 @@
         };
     });
 
-    const NAV = [
-        { href: "/", label: "Today", icon: CalendarCheck },
-        { href: "/habits", label: "Habits", icon: ListTodo },
-        { href: "/settings", label: "Settings", icon: Settings },
-    ];
-
     const isWidget = $derived($page.url.pathname === "/widget");
 </script>
 
@@ -54,32 +49,23 @@
     <div class="h-screen overflow-hidden">
         {@render children()}
     </div>
+{:else if isMobile}
+    <div class="flex flex-col h-screen">
+        <div class="flex-1 overflow-y-auto pt-[env(safe-area-inset-top)]">
+            {@render children()}
+        </div>
+        <MobileNav items={NAV} />
+    </div>
 {:else}
     <div class="flex flex-col h-screen">
         <header
-            class="border-b border-border px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] flex items-center justify-between shrink-0"
+            class="border-b border-border px-4 py-3 flex items-center justify-between shrink-0"
         >
             <span class="font-bold tracking-tight">Enhabitz</span>
-            <nav class="flex gap-1">
-                {#each NAV as item}
-                    {@const active = $page.url.pathname === item.href}
-                    <a
-                        href={item.href}
-                        class={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
-                            ${
-                                active
-                                    ? "bg-primary text-primary-foreground"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                            }`}
-                    >
-                        <item.icon class="h-3.5 w-3.5" />
-                        {item.label}
-                    </a>
-                {/each}
-            </nav>
+            <DesktopNav items={NAV} />
         </header>
 
-        <div class="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+        <div class="flex-1 overflow-y-auto">
             {@render children()}
         </div>
     </div>
