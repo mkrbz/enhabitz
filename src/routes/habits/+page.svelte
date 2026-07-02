@@ -11,6 +11,7 @@
     import { Button } from "$lib/components/ui/button";
     import * as Dialog from "$lib/components/ui/dialog";
     import { Pencil, Trash2, Plus } from "@lucide/svelte";
+    import { isMobile } from "$lib/platform";
 
     let dialogOpen = $state(false);
     let confirmDeleteId = $state<string | null>(null);
@@ -105,6 +106,12 @@
     };
 
     const draftCount = $derived(habits.filter((h) => !h.startDate).length);
+
+    // Desktop keeps a compact hover-revealed icon; mobile needs both a
+    // permanently-visible button (no hover state) and a touch target closer
+    // to Android's ~48dp guideline than the 28px desktop size.
+    const rowActionBtnClass = isMobile ? "h-11 w-11" : "h-7 w-7";
+    const rowActionIconClass = isMobile ? "h-5 w-5" : "h-3.5 w-3.5";
 </script>
 
 <main class="flex flex-col w-full max-w-lg mx-auto px-4 py-6">
@@ -171,23 +178,23 @@
                     </div>
 
                     <div
-                        class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        class={`flex gap-1 transition-opacity ${isMobile ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
                     >
                         <Button
                             variant="ghost"
                             size="icon"
-                            class="h-7 w-7"
+                            class={rowActionBtnClass}
                             onclick={() => openEdit(habit)}
                         >
-                            <Pencil class="h-3.5 w-3.5" />
+                            <Pencil class={rowActionIconClass} />
                         </Button>
                         <Button
                             variant="ghost"
                             size="icon"
-                            class="h-7 w-7 text-destructive hover:text-destructive"
+                            class={`${rowActionBtnClass} text-destructive hover:text-destructive`}
                             onclick={() => confirmDelete(habit.id)}
                         >
-                            <Trash2 class="h-3.5 w-3.5" />
+                            <Trash2 class={rowActionIconClass} />
                         </Button>
                     </div>
                 </div>

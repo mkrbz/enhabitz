@@ -37,10 +37,13 @@
                 Math.floor((Date.now() - startedAt) / 1000),
             );
         }, 200);
-        // Cleanup: fires when isRunning → false or component is destroyed
+        // Only clear the interval — the timer's real state lives in the
+        // shared habits store, not this component, so it should keep
+        // running if the user navigates away and back rather than being
+        // force-paused every time this effect re-runs (including from its
+        // own pause action, which already calls stopTimer itself).
         return () => {
             clearInterval(id);
-            if (habit.isRunning) stopTimer(habit.id);
         };
     });
 

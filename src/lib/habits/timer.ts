@@ -37,3 +37,15 @@ export function resetTimer(id: string) {
     h.startedAt = undefined;
     saveLog(h);
 }
+
+/** Snapshots current elapsed time to disk without stopping — a running
+ * timer's progress otherwise only lives in memory until an explicit pause,
+ * but Android can kill a backgrounded process at any time to reclaim
+ * memory, silently discarding it. Called on visibilitychange, see
+ * persistRunningProgress() in manage.ts. */
+export function persistTimerProgress(id: string) {
+    const h = find<TimerHabit>(id, "timer");
+    if (!h || !h.isRunning || h.startedAt === undefined) return;
+    const elapsed = Math.max(0, Math.floor((Date.now() - h.startedAt) / 1000));
+    saveLog({ ...h, secondsElapsed: elapsed });
+}

@@ -6,6 +6,18 @@ function totalElapsedSeconds(h: CounterTimerHabit): number {
     return h.currentRound * h.secondsPerRound + h.roundSecondsElapsed;
 }
 
+function roundStateAt(
+    h: CounterTimerHabit,
+    elapsedMs: number,
+): { currentRound: number; roundSecondsElapsed: number } {
+    const elapsed = Math.max(0, Math.floor(elapsedMs / 1000));
+    const totalTarget = h.rounds * h.secondsPerRound;
+    const clamped = Math.min(elapsed, totalTarget);
+    const currentRound = Math.min(Math.floor(clamped / h.secondsPerRound), h.rounds);
+    const roundSecondsElapsed = currentRound >= h.rounds ? 0 : clamped % h.secondsPerRound;
+    return { currentRound, roundSecondsElapsed };
+}
+
 export function startCounterTimer(id: string) {
     const h = find<CounterTimerHabit>(id, "counter-timer");
     if (!h || h.currentRound >= h.rounds) return;
@@ -17,15 +29,19 @@ export function stopCounterTimer(id: string) {
     const h = find<CounterTimerHabit>(id, "counter-timer");
     if (!h) return;
     if (h.startedAt !== undefined) {
-        const elapsed = Math.max(0, Math.floor((Date.now() - h.startedAt) / 1000));
-        const totalTarget = h.rounds * h.secondsPerRound;
-        const clamped = Math.min(elapsed, totalTarget);
-        h.currentRound = Math.min(Math.floor(clamped / h.secondsPerRound), h.rounds);
-        h.roundSecondsElapsed = h.currentRound >= h.rounds ? 0 : clamped % h.secondsPerRound;
+        Object.assign(h, roundStateAt(h, Date.now() - h.startedAt));
         h.startedAt = undefined;
     }
     h.isRunning = false;
     saveLog(h);
+}
+
+/** Snapshots current round progress to disk without stopping — same
+ * rationale as persistTimerProgress() in timer.ts. */
+export function persistCounterTimerProgress(id: string) {
+    const h = find<CounterTimerHabit>(id, "counter-timer");
+    if (!h || !h.isRunning || h.startedAt === undefined) return;
+    saveLog({ ...h, ...roundStateAt(h, Date.now() - h.startedAt) });
 }
 
 export function setCounterTimerRound(id: string, round: number) {

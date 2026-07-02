@@ -13,6 +13,8 @@
         refreshHabits,
         checkAndResetIfNewDay,
         refreshHistory,
+        isOwnChangeEvent,
+        persistRunningProgress,
     } from "$lib/habits";
 
     let { children } = $props();
@@ -27,8 +29,18 @@
         window.addEventListener("focus", checkAndResetIfNewDay);
         const interval = setInterval(checkAndResetIfNewDay, 60_000);
 
+        // Android can kill a backgrounded process at any time to reclaim
+        // memory — visibilitychange fires reliably as the Activity pauses,
+        // giving us a last chance to flush running-timer progress before
+        // that happens. See persistRunningProgress() in manage.ts.
+        function handleVisibilityChange() {
+            if (document.visibilityState === "hidden") persistRunningProgress();
+        }
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
         let unlistenHabitsChanged: (() => void) | undefined;
         listen("habits-changed", async () => {
+            if (isOwnChangeEvent()) return;
             await refreshHabits();
             await refreshHistory();
         }).then((fn) => {
@@ -37,6 +49,7 @@
 
         return () => {
             window.removeEventListener("focus", checkAndResetIfNewDay);
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
             clearInterval(interval);
             unlistenHabitsChanged?.();
         };

@@ -39,9 +39,13 @@
             displayRoundSeconds = totalElapsed % habit.secondsPerRound;
         }, 200);
 
+        // Only clear the interval — the timer's real state lives in the
+        // shared habits store, not this component, so it should keep
+        // running if the user navigates away and back rather than being
+        // force-paused every time this effect re-runs (including from its
+        // own pause action, which already calls stopCounterTimer itself).
         return () => {
             clearInterval(id);
-            if (habit.isRunning) stopCounterTimer(habit.id);
         };
     });
 
