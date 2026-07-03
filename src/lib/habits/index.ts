@@ -2,6 +2,7 @@ export { habits } from "./state.svelte";
 export { formatTime } from "./utils";
 
 export { isHabitDone, completedCount } from "./derived.svelte";
+export { isActiveOn } from "./schedule";
 
 export { toggleTodo } from "./todo";
 export { increment, decrement, setCount } from "./counter";
