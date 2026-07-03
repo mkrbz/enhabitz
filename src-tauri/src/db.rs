@@ -183,7 +183,14 @@ const LATEST_SCHEMA_VERSION: i64 = 2;
 impl Db {
     pub fn new(path: &Path, device_id: String) -> Result<Self> {
         let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        // synchronous=NORMAL is the documented-safe pairing with WAL (durable
+        // against app crashes, only loses the last commit on power loss/OS
+        // crash) and fsyncs less often than the FULL default — worth it for
+        // a habit log where that tradeoff is fine, and fewer fsyncs means
+        // fewer forced flash-storage wakeups.
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
+        )?;
         // Must be checked before init_schema() runs, since CREATE TABLE IF NOT
         // EXISTS would otherwise make every database look pre-existing.
         let is_fresh = !Self::table_exists(&conn, "habits")?;

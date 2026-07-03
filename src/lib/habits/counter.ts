@@ -2,6 +2,26 @@ import { find } from "./state.svelte";
 import { saveLog } from "./history.svelte";
 import type { CounterHabit } from "$lib/types";
 
+const DEBOUNCE_MS = 250;
+const pending = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Coalesces rapid taps (e.g. tapping +1 twenty times in a few seconds) into
+ * a single write instead of one IPC round-trip + disk write per tap — the
+ * UI is already optimistic via local $state, so only the persistence needs
+ * delaying. Not used for discrete, infrequent actions (toggleTodo,
+ * stopTimer, manual "Set" entry) — those should save immediately. */
+function debouncedSaveLog(habit: CounterHabit) {
+    const existing = pending.get(habit.id);
+    if (existing) clearTimeout(existing);
+    pending.set(
+        habit.id,
+        setTimeout(() => {
+            pending.delete(habit.id);
+            saveLog(habit);
+        }, DEBOUNCE_MS),
+    );
+}
+
 export function increment(id: string) {
     const h = find<CounterHabit>(id, "counter");
     if (!h) return;
@@ -16,7 +36,7 @@ export function increment(id: string) {
     } else {
         h.count++;
     }
-    saveLog(h);
+    debouncedSaveLog(h);
 }
 
 export function decrement(id: string) {
@@ -28,7 +48,7 @@ export function decrement(id: string) {
         h.completedSets = (h.completedSets ?? 0) - 1;
         h.count = h.target - 1;
     }
-    saveLog(h);
+    debouncedSaveLog(h);
 }
 
 export function setCount(id: string, count: number, completedSets?: number) {

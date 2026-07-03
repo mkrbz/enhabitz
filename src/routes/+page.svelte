@@ -2,7 +2,7 @@
     import { onMount } from "svelte";
     import { habits, completedCount, dayLabels, isActiveOn } from "$lib/habits";
     import { isMobile } from "$lib/platform";
-    import { localDateKey, formatDay } from "$lib/date";
+    import { localDateKey, formatDay, onNextMidnight } from "$lib/date";
     import TodoHabit from "$lib/components/habits/TodoHabit.svelte";
     import CounterHabit from "$lib/components/habits/CounterHabit.svelte";
     import TimerHabit from "$lib/components/habits/TimerHabit.svelte";
@@ -34,10 +34,10 @@
             todayDate = new Date();
         }
         window.addEventListener("focus", refreshToday);
-        const interval = setInterval(refreshToday, 60_000);
+        const stopMidnightCheck = onNextMidnight(refreshToday);
         return () => {
             window.removeEventListener("focus", refreshToday);
-            clearInterval(interval);
+            stopMidnightCheck();
         };
     });
 

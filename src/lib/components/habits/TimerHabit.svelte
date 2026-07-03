@@ -10,6 +10,7 @@
     import { Button } from "$lib/components/ui/button";
     import * as Dialog from "$lib/components/ui/dialog";
     import { Play, Pause, RotateCcw } from "@lucide/svelte";
+    import { visibility } from "$lib/visibility.svelte";
 
     let { habit }: { habit: TimerHabit } = $props();
 
@@ -31,6 +32,16 @@
             return;
         }
         const startedAt = habit.startedAt;
+        // Resync immediately regardless of visibility — covers the tab/app
+        // becoming visible again after being hidden for a while.
+        displaySeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+
+        // The 200ms tick is purely cosmetic (the real elapsed time is always
+        // derivable from startedAt), so there's nothing to update while
+        // hidden — don't keep the JS engine busy in the background just to
+        // recompute a number nobody can see.
+        if (!visibility.visible) return;
+
         const id = setInterval(() => {
             displaySeconds = Math.max(
                 0,

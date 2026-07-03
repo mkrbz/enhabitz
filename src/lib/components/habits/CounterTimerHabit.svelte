@@ -4,6 +4,7 @@
     import { Button } from "$lib/components/ui/button";
     import * as Dialog from "$lib/components/ui/dialog";
     import { Play, Pause, RotateCcw } from "@lucide/svelte";
+    import { visibility } from "$lib/visibility.svelte";
 
     let { habit }: { habit: CounterTimerHabit } = $props();
 
@@ -27,17 +28,33 @@
         const startedAt = habit.startedAt;
         const totalTarget = habit.rounds * habit.secondsPerRound;
 
-        const id = setInterval(() => {
+        // Returns true once the round-timer has actually finished, so the
+        // caller can skip starting an interval that would immediately fire
+        // into a no-op state.
+        function tick(): boolean {
             const totalElapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
             if (totalElapsed >= totalTarget) {
                 displayRound = habit.rounds;
                 displayRoundSeconds = 0;
                 stopCounterTimer(habit.id); // auto-complete
-                return;
+                return true;
             }
             displayRound = Math.floor(totalElapsed / habit.secondsPerRound);
             displayRoundSeconds = totalElapsed % habit.secondsPerRound;
-        }, 200);
+            return false;
+        }
+
+        // Resync immediately regardless of visibility — covers both the app
+        // becoming visible again after being hidden, and a round finishing
+        // while it was hidden (which the paused interval below would
+        // otherwise never notice).
+        const finished = tick();
+
+        // The 200ms tick is purely cosmetic display refresh; there's nothing
+        // to update while hidden, so don't keep ticking in the background.
+        if (finished || !visibility.visible) return;
+
+        const id = setInterval(tick, 200);
 
         // Only clear the interval — the timer's real state lives in the
         // shared habits store, not this component, so it should keep

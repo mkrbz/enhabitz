@@ -4,6 +4,7 @@
     import { page } from "$app/stores";
     import { listen } from "@tauri-apps/api/event";
     import { isMobile } from "$lib/platform";
+    import { onNextMidnight } from "$lib/date";
     import { themeStore } from "$lib/theme.svelte";
     import { NAV } from "$lib/components/nav/nav-items";
     import DesktopNav from "$lib/components/nav/DesktopNav.svelte";
@@ -27,7 +28,11 @@
         initHabits();
         refreshHistory();
         window.addEventListener("focus", checkAndResetIfNewDay);
-        const interval = setInterval(checkAndResetIfNewDay, 60_000);
+        // A single precisely-scheduled wakeup instead of a recurring poll —
+        // see onNextMidnight's doc comment. The focus listener above already
+        // covers "reopen the app after midnight"; this covers the rarer
+        // case of the app staying foregrounded and idle across midnight.
+        const stopMidnightCheck = onNextMidnight(checkAndResetIfNewDay);
 
         // Android can kill a backgrounded process at any time to reclaim
         // memory — visibilitychange fires reliably as the Activity pauses,
@@ -50,7 +55,7 @@
         return () => {
             window.removeEventListener("focus", checkAndResetIfNewDay);
             document.removeEventListener("visibilitychange", handleVisibilityChange);
-            clearInterval(interval);
+            stopMidnightCheck();
             unlistenHabitsChanged?.();
         };
     });
