@@ -1,4 +1,6 @@
-use chrono::Datelike;
+use chrono::{Datelike, Local, NaiveDate};
+#[cfg(debug_assertions)]
+use chrono::Duration;
 use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -90,10 +92,25 @@ fn is_active_today(
     repeat_days: &Option<String>,
     repeat_every: &Option<i64>,
 ) -> bool {
-    use chrono::{Local, NaiveDate};
+    is_active_on(
+        start_date,
+        repeat_type,
+        repeat_days,
+        repeat_every,
+        Local::now().date_naive(),
+    )
+}
 
-    let today = Local::now().date_naive();
-
+/// Generalizes `is_active_today` to an arbitrary date — the seed data
+/// generator needs to know which past days a habit was scheduled on, not
+/// just today.
+fn is_active_on(
+    start_date: &Option<String>,
+    repeat_type: &str,
+    repeat_days: &Option<String>,
+    repeat_every: &Option<i64>,
+    date: NaiveDate,
+) -> bool {
     let start = match start_date {
         None => return false, // draft / idea
         Some(s) => match NaiveDate::parse_from_str(s, "%Y-%m-%d") {
@@ -102,7 +119,7 @@ fn is_active_today(
         },
     };
 
-    if today < start {
+    if date < start {
         return false; // hasn't started yet
     }
 
@@ -110,7 +127,7 @@ fn is_active_today(
         "daily" => true,
         "weekly" => {
             // repeat_days: JSON array of 0–6 where 0 = Sunday (matches JS Date.getDay())
-            let weekday_num = today.weekday().num_days_from_sunday();
+            let weekday_num = date.weekday().num_days_from_sunday();
             let days: Vec<u32> = repeat_days
                 .as_ref()
                 .and_then(|s| serde_json::from_str(s).ok())
@@ -119,7 +136,7 @@ fn is_active_today(
         }
         "monthly" => {
             // repeat_days: JSON array of day-of-month numbers 1–31
-            let day = today.day();
+            let day = date.day();
             let days: Vec<u32> = repeat_days
                 .as_ref()
                 .and_then(|s| serde_json::from_str(s).ok())
@@ -129,7 +146,7 @@ fn is_active_today(
         "interval" => {
             // every N days from start_date
             let every = repeat_every.unwrap_or(1).max(1);
-            let diff = (today - start).num_days();
+            let diff = (date - start).num_days();
             diff % every == 0
         }
         _ => true,
@@ -585,6 +602,195 @@ impl Db {
                 log.current_round,
                 log.round_seconds_elapsed,
                 now,
+                self.device_id,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Populates a handful of habits plus weeks of history so the Stats page
+    /// has something to show during development. Dev-tooling only — compiled
+    /// out of release builds entirely, same as the rest of this file follows
+    /// the "don't ship what you don't need" rule for Android.
+    #[cfg(debug_assertions)]
+    pub fn seed_demo_data(&self) -> Result<()> {
+        let today = Local::now().date_naive();
+
+        struct SeedHabit {
+            habit_type: &'static str,
+            label: &'static str,
+            target: Option<i64>,
+            sets: Option<i64>,
+            target_seconds: Option<i64>,
+            rounds: Option<i64>,
+            seconds_per_round: Option<i64>,
+            start_days_ago: i64,
+            repeat_type: &'static str,
+            repeat_days: Option<&'static str>,
+            repeat_every: Option<i64>,
+            // Given the index of a *scheduled* day (0 = oldest), returns
+            // whether it was completed.
+            done: fn(usize) -> bool,
+        }
+
+        let habits = [
+            // Steady habit with one gap in the middle: shows a best streak
+            // longer than the current one.
+            SeedHabit {
+                habit_type: "todo",
+                label: "Drink water",
+                target: None,
+                sets: None,
+                target_seconds: None,
+                rounds: None,
+                seconds_per_round: None,
+                start_days_ago: 45,
+                repeat_type: "daily",
+                repeat_days: None,
+                repeat_every: None,
+                done: |i| !(24..=26).contains(&i),
+            },
+            // Irregular completion — modest streak, ~80% rate.
+            SeedHabit {
+                habit_type: "counter",
+                label: "Push-ups",
+                target: Some(30),
+                sets: Some(3),
+                target_seconds: None,
+                rounds: None,
+                seconds_per_round: None,
+                start_days_ago: 35,
+                repeat_type: "daily",
+                repeat_days: None,
+                repeat_every: None,
+                done: |i| i % 5 != 1,
+            },
+            // Weekly habit, nearly perfect once it got going.
+            SeedHabit {
+                habit_type: "timer",
+                label: "Read",
+                target: None,
+                sets: None,
+                target_seconds: Some(1200),
+                rounds: None,
+                seconds_per_round: None,
+                start_days_ago: 70,
+                repeat_type: "weekly",
+                repeat_days: Some("[1,3,5]"), // Mon/Wed/Fri
+                repeat_every: None,
+                done: |i| i >= 2,
+            },
+            // Just started, perfect so far.
+            SeedHabit {
+                habit_type: "counter-timer",
+                label: "Stretch",
+                target: None,
+                sets: None,
+                target_seconds: None,
+                rounds: Some(3),
+                seconds_per_round: Some(60),
+                start_days_ago: 20,
+                repeat_type: "daily",
+                repeat_days: None,
+                repeat_every: None,
+                done: |_| true,
+            },
+            // Draft — no start date, so it's excluded from stats entirely.
+            SeedHabit {
+                habit_type: "todo",
+                label: "Learn guitar",
+                target: None,
+                sets: None,
+                target_seconds: None,
+                rounds: None,
+                seconds_per_round: None,
+                start_days_ago: -1, // sentinel: no start_date
+                repeat_type: "daily",
+                repeat_days: None,
+                repeat_every: None,
+                done: |_| false,
+            },
+        ];
+
+        for h in habits {
+            let start_date = if h.start_days_ago < 0 {
+                None
+            } else {
+                Some((today - Duration::days(h.start_days_ago)).format("%Y-%m-%d").to_string())
+            };
+            let repeat_days = h.repeat_days.map(|s| s.to_string());
+
+            let id = self.add_habit(HabitData {
+                habit_type: h.habit_type.to_string(),
+                label: h.label.to_string(),
+                target: h.target,
+                sets: h.sets,
+                target_seconds: h.target_seconds,
+                rounds: h.rounds,
+                seconds_per_round: h.seconds_per_round,
+                start_date: start_date.clone(),
+                repeat_type: h.repeat_type.to_string(),
+                repeat_days,
+                repeat_every: h.repeat_every,
+            })?;
+
+            let Some(start_date) = start_date else { continue };
+            let start = NaiveDate::parse_from_str(&start_date, "%Y-%m-%d").unwrap();
+            let repeat_days = h.repeat_days.map(|s| s.to_string());
+
+            let mut scheduled_index = 0usize;
+            let mut date = start;
+            while date <= today {
+                if is_active_on(&Some(start_date.clone()), h.repeat_type, &repeat_days, &h.repeat_every, date) {
+                    if (h.done)(scheduled_index) {
+                        self.seed_log_for(&id, h.habit_type, date, h.target, h.sets, h.target_seconds, h.rounds)?;
+                    }
+                    scheduled_index += 1;
+                }
+                date += Duration::days(1);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Writes a habit_logs row for `date` with values that satisfy
+    /// load_log_history's "done" criteria for the given habit type.
+    #[cfg(debug_assertions)]
+    fn seed_log_for(
+        &self,
+        habit_id: &str,
+        habit_type: &str,
+        date: NaiveDate,
+        target: Option<i64>,
+        sets: Option<i64>,
+        target_seconds: Option<i64>,
+        rounds: Option<i64>,
+    ) -> Result<()> {
+        let (done, count, completed_sets, seconds_elapsed, current_round) = match habit_type {
+            "todo" => (Some(1i64), None, None, None, None),
+            "counter" => (None, target, sets, None, None),
+            "timer" => (None, None, None, target_seconds, None),
+            "counter-timer" => (None, None, None, None, rounds),
+            _ => (None, None, None, None, None),
+        };
+
+        self.conn.execute(
+            "INSERT INTO habit_logs
+                (habit_id, date, done, count, completed_sets, seconds_elapsed,
+                 current_round, round_seconds_elapsed, updated_at, device_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT (habit_id, date) DO NOTHING",
+            params![
+                habit_id,
+                date.format("%Y-%m-%d").to_string(),
+                done,
+                count,
+                completed_sets,
+                seconds_elapsed,
+                current_round,
+                None::<i64>, // round_seconds_elapsed: irrelevant to the "done" check
+                now_millis(),
                 self.device_id,
             ],
         )?;

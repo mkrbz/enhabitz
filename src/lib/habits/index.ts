@@ -3,6 +3,7 @@ export { formatTime } from "./utils";
 
 export { isHabitDone, completedCount } from "./derived.svelte";
 export { isActiveOn } from "./schedule";
+export { currentStreak, bestStreak, completionRate } from "./stats";
 
 export { toggleTodo } from "./todo";
 export { increment, decrement, setCount } from "./counter";

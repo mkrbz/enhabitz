@@ -1,8 +1,5 @@
 import type { Habit } from "$lib/types";
-
-function stripTime(date: Date): Date {
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
+import { stripTime } from "$lib/date";
 
 /** Mirrors is_active_today() in src-tauri/src/db.rs, generalized to any date
  * so the frontend can answer "was this habit scheduled on day X" for history

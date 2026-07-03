@@ -1,21 +1,47 @@
 <script lang="ts">
+    import { onMount } from "svelte";
     import { habits, completedCount, dayLabels, isActiveOn } from "$lib/habits";
-    import { isMobile, isDesktop } from "$lib/platform";
+    import { isMobile } from "$lib/platform";
+    import { localDateKey, formatDay } from "$lib/date";
     import TodoHabit from "$lib/components/habits/TodoHabit.svelte";
     import CounterHabit from "$lib/components/habits/CounterHabit.svelte";
     import TimerHabit from "$lib/components/habits/TimerHabit.svelte";
     import CounterTimerHabit from "$lib/components/habits/CounterTimerHabit.svelte";
     import WeekStrip from "$lib/components/today/WeekStrip.svelte";
-    import { Heatmap } from "@mkrbz/svelte-ui";
-    import type { HeatmapData } from "@mkrbz/svelte-ui";
     import { Check, Circle } from "@lucide/svelte";
 
     const activeHabits = $derived(habits.filter((h) => h.isActiveToday));
 
     // ── Mobile: selectable day strip ────────────────────────────────────────────
 
-    let selectedDate = $state(new Date());
-    const todayKey = localDateKey(new Date());
+    // `todayDate` tracks the real day, refreshed on focus/interval below —
+    // a plain const here would freeze at whatever day the app happened to
+    // load on, silently turning "today" into a read-only past day (with no
+    // click handlers at all) after the app has been open across midnight.
+    let todayDate = $state(new Date());
+    // null = "following today"; a Date = the user explicitly picked a day.
+    let userSelected = $state<Date | null>(null);
+    const selectedDate = $derived(userSelected ?? todayDate);
+
+    onMount(() => {
+        function refreshToday() {
+            // If the explicit pick was "today" as of the last check, keep
+            // following the new day rather than getting stuck on what is
+            // now yesterday.
+            if (userSelected && localDateKey(userSelected) === localDateKey(todayDate)) {
+                userSelected = null;
+            }
+            todayDate = new Date();
+        }
+        window.addEventListener("focus", refreshToday);
+        const interval = setInterval(refreshToday, 60_000);
+        return () => {
+            window.removeEventListener("focus", refreshToday);
+            clearInterval(interval);
+        };
+    });
+
+    const todayKey = $derived(localDateKey(todayDate));
     const selectedKey = $derived(localDateKey(selectedDate));
     const isViewingToday = $derived(selectedKey === todayKey);
 
@@ -46,91 +72,6 @@
         return done >= scheduled.length ? "full" : "partial";
     }
 
-    const heatmapData = $derived<HeatmapData[]>(
-        Object.entries(dayLabels).map(([date, labels]) => ({
-            date: new Date(date + "T00:00:00"),
-            count: labels.length,
-        })),
-    );
-
-    const MONTHS = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ];
-
-    function formatDay(date: Date): string {
-        return `${MONTHS[date.getMonth()]} ${date.getDate()}`;
-    }
-
-    function localDateKey(date: Date): string {
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, "0");
-        const d = String(date.getDate()).padStart(2, "0");
-        return `${y}-${m}-${d}`;
-    }
-
-    function labelsForDay(date: Date): string[] {
-        return dayLabels[localDateKey(date)] ?? [];
-    }
-
-    // ── Heatmap color themes ──────────────────────────────────────────────────
-
-    type Theme = "green" | "orange" | "red";
-
-    const THEMES: { value: Theme; dot: string }[] = [
-        { value: "green", dot: "bg-emerald-500" },
-        { value: "orange", dot: "bg-orange-500" },
-        { value: "red", dot: "bg-rose-500" },
-    ];
-
-    const SCALES: Record<Theme, string[]> = {
-        green: [
-            "bg-emerald-950",
-            "bg-emerald-700",
-            "bg-emerald-500",
-            "bg-emerald-300",
-        ],
-        orange: [
-            "bg-orange-950",
-            "bg-orange-700",
-            "bg-orange-500",
-            "bg-orange-300",
-        ],
-        red: ["bg-rose-950", "bg-rose-700", "bg-rose-500", "bg-rose-300"],
-    };
-
-    const THEME_KEY = "heatmap-theme";
-
-    function savedTheme(): Theme {
-        const v = localStorage.getItem(THEME_KEY);
-        return v === "green" || v === "orange" || v === "red" ? v : "green";
-    }
-
-    let theme = $state<Theme>(savedTheme());
-
-    $effect(() => {
-        localStorage.setItem(THEME_KEY, theme);
-    });
-
-    function colorScale(count: number, future: boolean): string {
-        if (future) return "bg-muted border border-border";
-        if (count === 0) return "bg-muted/50 border border-border/40";
-        const scale = SCALES[theme];
-        if (count === 1) return scale[0];
-        if (count === 2) return scale[1];
-        if (count === 3) return scale[2];
-        return scale[3];
-    }
 </script>
 
 <main class="flex flex-col w-full max-w-lg mx-auto px-4 py-6">
@@ -147,7 +88,12 @@
 
     {#if isMobile}
         <div class="mb-6">
-            <WeekStrip bind:selected={selectedDate} {activityFor} />
+            <WeekStrip
+                selected={selectedDate}
+                {todayKey}
+                onSelect={(d) => (userSelected = d)}
+                {activityFor}
+            />
         </div>
 
         {#if selectedHabits.length === 0}
@@ -224,45 +170,6 @@
                     <CounterTimerHabit {habit} />
                 {/if}
             {/each}
-        </div>
-    {/if}
-
-    {#if isDesktop}
-        <div class="mt-10">
-            <div class="flex items-center justify-between mb-2">
-                <span class="text-xs text-muted-foreground">Habits completed</span>
-                <div class="flex gap-1.5">
-                    {#each THEMES as t}
-                        <button
-                            onclick={() => (theme = t.value)}
-                            class={`w-4 h-4 rounded-full ${t.dot} transition-all
-                                ${theme === t.value ? "ring-2 ring-offset-1 ring-offset-background ring-current scale-110" : "opacity-40 hover:opacity-70"}`}
-                            aria-label={t.value}
-                        ></button>
-                    {/each}
-                </div>
-            </div>
-            <Heatmap
-                data={heatmapData}
-                weeks={26}
-                todaysWeek={-1}
-                label=""
-                options={{ colorScale }}
-            >
-                {#snippet tooltip(date)}
-                    {@const labels = labelsForDay(date)}
-                    <p class="font-medium mb-1">{formatDay(date)}</p>
-                    {#if labels.length === 0}
-                        <p class="text-muted-foreground">Nothing completed</p>
-                    {:else}
-                        <ul class="flex flex-col gap-0.5">
-                            {#each labels as label}
-                                <li>· {label}</li>
-                            {/each}
-                        </ul>
-                    {/if}
-                {/snippet}
-            </Heatmap>
         </div>
     {/if}
 </main>

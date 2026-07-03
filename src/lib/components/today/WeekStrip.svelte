@@ -1,5 +1,6 @@
 <script lang="ts">
     import { ChevronLeft, ChevronRight } from "@lucide/svelte";
+    import { localDateKey, addDays } from "$lib/date";
 
     const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
     const MONTHS = [
@@ -9,32 +10,20 @@
     const SWIPE_THRESHOLD = 40;
 
     let {
-        selected = $bindable(),
+        selected,
+        todayKey,
+        onSelect,
         activityFor,
     }: {
         selected: Date;
+        todayKey: string;
+        onSelect: (date: Date) => void;
         activityFor: (date: Date) => "full" | "partial" | "none";
     } = $props();
-
-    function localDateKey(date: Date): string {
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, "0");
-        const d = String(date.getDate()).padStart(2, "0");
-        return `${y}-${m}-${d}`;
-    }
-
-    function addDays(date: Date, n: number): Date {
-        const d = new Date(date);
-        d.setDate(d.getDate() + n);
-        return d;
-    }
 
     function mondayOf(date: Date): Date {
         return addDays(date, -((date.getDay() + 6) % 7));
     }
-
-    const today = new Date();
-    const todayKey = localDateKey(today);
 
     // The visible 7-day window — independent of `selected` after mount, so
     // browsing weeks doesn't require reloading anything (all data is already
@@ -102,7 +91,7 @@
             {@const isSelected = key === localDateKey(selected)}
             {@const activity = activityFor(date)}
             <button
-                onclick={() => (selected = date)}
+                onclick={() => onSelect(date)}
                 class="flex flex-1 flex-col items-center gap-1 rounded-lg py-1 transition-colors"
             >
                 <span class="text-xs text-muted-foreground">{DAY_LETTERS[date.getDay()]}</span>
