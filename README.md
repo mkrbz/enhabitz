@@ -1,6 +1,6 @@
 # Enhabitz
 
-A habit tracking desktop app built with Tauri 2, SvelteKit, and TypeScript.
+A habit tracking app for desktop and Android, built with Tauri 2, SvelteKit, and TypeScript.
 
 ## Stack
 
@@ -57,6 +57,43 @@ Downloaded builds are blocked by Gatekeeper because the app isn't notarized. Str
 ```bash
 xattr -cr /Applications/enhabitz.app
 ```
+
+## Android
+
+Android support goes through the same Tauri project — `src-tauri/gen/android` is generated once and checked in, so there's no separate app/repo to maintain.
+
+### Prerequisites
+
+- Android SDK + NDK installed, with `ANDROID_HOME` (and `NDK_HOME`, if not auto-detected) set.
+- The Rust Android targets:
+  ```bash
+  rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+  ```
+- A device with USB debugging enabled and connected (`adb devices` should list it), or an emulator.
+
+### Dev build
+
+```bash
+bun tauri android dev
+```
+
+Builds, installs, and launches a debug build on the connected device/emulator with live reload from the Vite dev server — same workflow as `bun tauri dev` on desktop.
+
+### Release build
+
+```bash
+bun tauri android build
+```
+
+Produces per-ABI and universal APKs (and an AAB) under `src-tauri/gen/android/app/build/outputs/`. This uses the release Cargo profile (LTO, stripped, R8/ProGuard-minified) for a meaningfully smaller/lighter build than the dev one — see `tasks/00-overview.md` for the full battery/performance optimization rationale.
+
+The release build type currently signs with the same debug keystore as `bun tauri android dev` (see the comment in `src-tauri/gen/android/app/build.gradle.kts`), so it installs over an existing dev install with no data loss:
+
+```bash
+adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+```
+
+Switch to a real release keystore (see [Tauri's Android signing docs](https://v2.tauri.app/distribute/sign/android/)) before ever publishing this or installing across multiple devices that need to receive updates independently.
 
 ## Recommended IDE
 

@@ -44,6 +44,15 @@ android {
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
                     .toList().toTypedArray()
             )
+            // Signed with the same debug keystore as `bun tauri android dev`
+            // builds (AGP auto-generates "debug" from ~/.android/debug.keystore)
+            // rather than a dedicated release key. That means this still
+            // installs over an existing dev install with no uninstall/data-loss
+            // step — the right tradeoff for a personal daily-driver app that
+            // isn't being distributed. Switch to a real release keystore (see
+            // https://v2.tauri.app/distribute/sign/android/) before ever
+            // publishing this or installing across multiple devices.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     kotlinOptions {
