@@ -91,19 +91,6 @@ fn load_log_history(state: tauri::State<'_, DbState>) -> Result<Vec<DayEntry>, S
         .map_err(|e| e.to_string())
 }
 
-/// Dev-only: populates demo habits/history for testing the Stats page.
-/// Compiled out of release builds — see Db::seed_demo_data.
-#[cfg(debug_assertions)]
-#[tauri::command]
-fn seed_demo_data(state: tauri::State<'_, DbState>) -> Result<(), String> {
-    state
-        .0
-        .lock()
-        .unwrap()
-        .seed_demo_data()
-        .map_err(|e| e.to_string())
-}
-
 // ─── Shortcut commands ────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -531,8 +518,6 @@ pub fn run() {
             load_log_history,
             get_shortcut,
             set_shortcut,
-            #[cfg(debug_assertions)]
-            seed_demo_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

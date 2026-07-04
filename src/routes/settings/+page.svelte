@@ -2,26 +2,9 @@
     import { onMount } from "svelte";
     import { invoke } from "@tauri-apps/api/core";
     import { Button } from "$lib/components/ui/button";
-    import { Keyboard, Monitor, Sun, Moon, SunMoon, FlaskConical } from "@lucide/svelte";
+    import { Keyboard, Monitor, Sun, Moon, SunMoon } from "@lucide/svelte";
     import { isDesktop } from "$lib/platform";
     import { themeStore, type Theme } from "$lib/theme.svelte";
-    import { initHabits, refreshHistory } from "$lib/habits";
-
-    let seeding = $state(false);
-    let seeded = $state(false);
-
-    async function seedDemoData() {
-        seeding = true;
-        try {
-            await invoke("seed_demo_data");
-            await initHabits();
-            await refreshHistory();
-            seeded = true;
-            setTimeout(() => (seeded = false), 2000);
-        } finally {
-            seeding = false;
-        }
-    }
 
     const THEME_OPTIONS: { value: Theme; label: string; icon: typeof Monitor }[] = [
         { value: "device", label: "Device", icon: Monitor },
@@ -239,22 +222,5 @@
             </p>
         </section>
     {/each}
-    {/if}
-
-    {#if import.meta.env.DEV}
-        <section class="space-y-3">
-            <div
-                class="flex items-center gap-2 text-sm font-medium text-muted-foreground uppercase tracking-wider"
-            >
-                <FlaskConical class="h-4 w-4" />
-                Developer
-            </div>
-            <p class="text-sm text-muted-foreground">
-                Populates demo habits and history for testing the Stats page. Dev builds only.
-            </p>
-            <Button variant="outline" onclick={seedDemoData} disabled={seeding}>
-                {seeding ? "Seeding…" : seeded ? "Seeded!" : "Seed demo data"}
-            </Button>
-        </section>
     {/if}
 </div>
