@@ -1,6 +1,7 @@
 import { dbSaveLog, dbLoadLogHistory } from "$lib/db";
 import type { Habit } from "$lib/types";
 import { emitHabitsChanged } from "./manage";
+import { syncReminders } from "$lib/notifications";
 
 // YYYY-MM-DD → completed habit labels that day
 // Plain object so Svelte 5 deep-proxies it and tracks mutations.
@@ -22,4 +23,5 @@ export async function saveLog(habit: Habit): Promise<void> {
     await dbSaveLog(habit);
     await refreshHistory();
     emitHabitsChanged();
+    syncReminders();
 }

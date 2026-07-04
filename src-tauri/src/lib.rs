@@ -384,7 +384,9 @@ fn position_widget(window: &WebviewWindow) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init());
 
     // Global shortcuts aren't a platform concept on mobile, and the plugin
     // doesn't even expose this API there — see tasks/02 in the repo's

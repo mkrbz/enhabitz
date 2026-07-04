@@ -11,3 +11,4 @@ export { startTimer, stopTimer, setTimerElapsed, resetTimer } from "./timer";
 export { startCounterTimer, stopCounterTimer, setCounterTimerRound, resetCounterTimer } from "./counter-timer";
 export { initHabits, refreshHabits, checkAndResetIfNewDay, addHabit, replaceHabit, deleteHabit, isOwnChangeEvent, persistRunningProgress } from "./manage";
 export { dayLabels, refreshHistory } from "./history.svelte";
+export { ensureNotificationPermission, syncReminders } from "$lib/notifications";

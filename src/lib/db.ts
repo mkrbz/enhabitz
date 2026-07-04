@@ -21,6 +21,7 @@ interface HabitRecord {
     repeat_days: string | null; // JSON-encoded number[]
     repeat_every: number | null;
     is_active_today: boolean;
+    reminder_time: string | null;
     // sync metadata
     updated_at: number;
     device_id: string;
@@ -46,6 +47,7 @@ interface HabitData {
     repeat_type: RepeatType;
     repeat_days: string | null; // JSON-encoded number[]
     repeat_every: number | null;
+    reminder_time: string | null;
 }
 
 interface LogData {
@@ -94,6 +96,7 @@ function recordToHabit(r: HabitRecord): Habit {
         repeatDays: r.repeat_days ? JSON.parse(r.repeat_days) : null,
         repeatEvery: r.repeat_every,
         isActiveToday: r.is_active_today,
+        reminderTime: r.reminder_time,
         updatedAt: r.updated_at,
         deviceId: r.device_id,
     };
@@ -141,6 +144,7 @@ function habitToData(habit: Omit<Habit, "id" | "updatedAt" | "deviceId">): Habit
         repeat_type: habit.repeatType,
         repeat_days: habit.repeatDays ? JSON.stringify(habit.repeatDays) : null,
         repeat_every: habit.repeatEvery,
+        reminder_time: habit.reminderTime,
     };
 }
 

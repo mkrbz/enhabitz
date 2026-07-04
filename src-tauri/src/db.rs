@@ -35,6 +35,9 @@ pub struct HabitRecord {
     pub repeat_days: Option<String>,
     pub repeat_every: Option<i64>,
     pub is_active_today: bool,
+    // "HH:MM" local time — notify if not done by this time on an active day.
+    // See src/lib/notifications.ts on the frontend.
+    pub reminder_time: Option<String>,
     // sync metadata — see tasks/14-multi-device-sync-schema.md in enhabitz-mobile
     pub updated_at: i64,
     pub device_id: String,
@@ -63,6 +66,7 @@ pub struct HabitData {
     pub repeat_type: String,
     pub repeat_days: Option<String>,
     pub repeat_every: Option<i64>,
+    pub reminder_time: Option<String>,
 }
 
 /// One row returned by load_log_history — one completed habit per day.
@@ -178,7 +182,7 @@ pub fn get_or_create_device_id(data_dir: &Path) -> std::io::Result<String> {
 
 /// Schema version produced by `init_schema()` — kept in sync with the last
 /// `PRAGMA user_version` that `migrate()` sets.
-const LATEST_SCHEMA_VERSION: i64 = 2;
+const LATEST_SCHEMA_VERSION: i64 = 3;
 
 impl Db {
     pub fn new(path: &Path, device_id: String) -> Result<Self> {
@@ -243,6 +247,7 @@ impl Db {
                 repeat_type       TEXT NOT NULL DEFAULT 'daily',
                 repeat_days       TEXT,
                 repeat_every      INTEGER,
+                reminder_time     TEXT,
                 updated_at        INTEGER NOT NULL,
                 deleted_at        INTEGER,
                 device_id         TEXT NOT NULL
@@ -296,6 +301,15 @@ impl Db {
         if version < 2 {
             self.migrate_to_uuid_ids()?;
             self.conn.execute_batch("PRAGMA user_version = 2;")?;
+        }
+
+        if version < 3 {
+            self.conn.execute_batch(
+                "
+                ALTER TABLE habits ADD COLUMN reminder_time TEXT;
+                PRAGMA user_version = 3;
+                ",
+            )?;
         }
 
         Ok(())
@@ -442,6 +456,7 @@ impl Db {
             SELECT h.id, h.type, h.label, h.target, h.sets, h.target_seconds,
                    h.rounds, h.seconds_per_round,
                    h.start_date, h.repeat_type, h.repeat_days, h.repeat_every,
+                   h.reminder_time,
                    h.updated_at, h.device_id,
                    l.done, l.count, l.completed_sets, l.seconds_elapsed,
                    l.current_round, l.round_seconds_elapsed
@@ -474,14 +489,15 @@ impl Db {
                 repeat_days,
                 repeat_every,
                 is_active_today: active,
-                updated_at: row.get(12)?,
-                device_id: row.get(13)?,
-                done: row.get::<_, Option<i64>>(14)?.map(|v| v != 0),
-                count: row.get(15)?,
-                completed_sets: row.get(16)?,
-                seconds_elapsed: row.get(17)?,
-                current_round: row.get(18)?,
-                round_seconds_elapsed: row.get(19)?,
+                reminder_time: row.get(12)?,
+                updated_at: row.get(13)?,
+                device_id: row.get(14)?,
+                done: row.get::<_, Option<i64>>(15)?.map(|v| v != 0),
+                count: row.get(16)?,
+                completed_sets: row.get(17)?,
+                seconds_elapsed: row.get(18)?,
+                current_round: row.get(19)?,
+                round_seconds_elapsed: row.get(20)?,
             })
         })?;
 
@@ -494,9 +510,9 @@ impl Db {
         self.conn.execute(
             "INSERT INTO habits
                 (id, type, label, sort_order, target, sets, target_seconds, rounds, seconds_per_round,
-                 start_date, repeat_type, repeat_days, repeat_every, updated_at, device_id)
+                 start_date, repeat_type, repeat_days, repeat_every, reminder_time, updated_at, device_id)
              VALUES (?1, ?2, ?3, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM habits),
-                     ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                     ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 id,
                 data.habit_type,
@@ -510,6 +526,7 @@ impl Db {
                 data.repeat_type,
                 data.repeat_days,
                 data.repeat_every,
+                data.reminder_time,
                 now,
                 self.device_id,
             ],
@@ -524,8 +541,8 @@ impl Db {
                 type = ?1, label = ?2, target = ?3, sets = ?4,
                 target_seconds = ?5, rounds = ?6, seconds_per_round = ?7,
                 start_date = ?8, repeat_type = ?9, repeat_days = ?10, repeat_every = ?11,
-                updated_at = ?12, device_id = ?13
-             WHERE id = ?14",
+                reminder_time = ?12, updated_at = ?13, device_id = ?14
+             WHERE id = ?15",
             params![
                 data.habit_type,
                 data.label,
@@ -538,6 +555,7 @@ impl Db {
                 data.repeat_type,
                 data.repeat_days,
                 data.repeat_every,
+                data.reminder_time,
                 now,
                 self.device_id,
                 id,
@@ -739,6 +757,7 @@ impl Db {
                 repeat_type: h.repeat_type.to_string(),
                 repeat_days,
                 repeat_every: h.repeat_every,
+                reminder_time: None,
             })?;
 
             let Some(start_date) = start_date else { continue };

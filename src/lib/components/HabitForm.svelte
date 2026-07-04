@@ -8,7 +8,7 @@
         TimerHabit,
         TodoHabit,
     } from "$lib/types";
-    import { formatTime } from "$lib/habits";
+    import { formatTime, ensureNotificationPermission } from "$lib/habits";
     import { Button } from "$lib/components/ui/button";
     import { Label } from "$lib/components/ui/label";
 
@@ -88,6 +88,8 @@
     let repeatDays = $state<number[]>(habit?.repeatDays ?? []);
     // svelte-ignore state_referenced_locally
     let repeatEvery = $state(habit?.repeatEvery ?? 2);
+    // svelte-ignore state_referenced_locally
+    let reminderTime = $state(habit?.reminderTime ?? "");
 
     // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -117,8 +119,13 @@
 
     // ── Submit ────────────────────────────────────────────────────────────────
 
-    function submit() {
+    async function submit() {
         if (!isValid) return;
+
+        // Ask for notification permission right here, contextually, rather
+        // than eagerly on app launch — this is the one moment the user has
+        // just expressed they want a reminder.
+        if (reminderTime) await ensureNotificationPermission();
 
         const schedule = {
             startDate: startDate || null,
@@ -126,6 +133,7 @@
             repeatDays: (repeatType === "weekly" || repeatType === "monthly") ? repeatDays : null,
             repeatEvery: repeatType === "interval" ? repeatEvery : null,
             isActiveToday: false, // Rust will recompute on next load
+            reminderTime: reminderTime || null,
         };
 
         let data: Omit<Habit, "id" | "updatedAt" | "deviceId">;
@@ -332,6 +340,31 @@
                 </p>
             {/if}
         </div>
+
+        <!-- Reminder (only meaningful once start date is set) -->
+        {#if startDate}
+            <div class="flex flex-col gap-1.5">
+                <Label for="reminder-time">Reminder (optional)</Label>
+                <div class="flex items-center gap-2">
+                    <input
+                        id="reminder-time"
+                        type="time"
+                        bind:value={reminderTime}
+                        class="rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    {#if reminderTime}
+                        <Button variant="outline" size="sm" onclick={() => (reminderTime = "")}>
+                            Clear
+                        </Button>
+                    {/if}
+                </div>
+                {#if reminderTime}
+                    <p class="text-xs text-muted-foreground">
+                        Notifies at {reminderTime} on active days if not done yet.
+                    </p>
+                {/if}
+            </div>
+        {/if}
 
         <!-- Repeat (only meaningful once start date is set) -->
         {#if startDate}

@@ -11,6 +11,9 @@ export interface BaseHabit {
     repeatDays: number[] | null;    // weekly: 0–6 (Sun=0), monthly: 1–31
     repeatEvery: number | null;     // interval: every N days
     isActiveToday: boolean;         // computed by Rust
+    // "HH:MM" local time — notify if not done by this time on an active
+    // day. null = no reminder. See src/lib/notifications.ts.
+    reminderTime: string | null;
     // Sync metadata — see tasks/14-multi-device-sync-schema.md in enhabitz-mobile
     updatedAt: number;              // epoch millis UTC
     deviceId: string;

@@ -4,6 +4,7 @@ import { stopCounterTimer, persistCounterTimerProgress } from "./counter-timer";
 import { dbLoadHabits, dbAddHabit, dbUpdateHabit, dbDeleteHabit } from "$lib/db";
 import type { Habit, TimerHabit, CounterTimerHabit } from "$lib/types";
 import { emit } from "@tauri-apps/api/event";
+import { syncReminders } from "$lib/notifications";
 
 let loadedDate = "";
 
@@ -45,6 +46,7 @@ export async function initHabits(): Promise<void> {
     const loaded = await dbLoadHabits();
     habits.splice(0, habits.length, ...loaded);
     loadedDate = todayStr();
+    syncReminders();
 }
 
 // Reload from DB while preserving running timer state in this window.
@@ -64,6 +66,7 @@ export async function refreshHabits(): Promise<void> {
             (h as TimerHabit | CounterTimerHabit).startedAt = runningState.get(h.id);
         }
     }
+    syncReminders();
 }
 
 export async function checkAndResetIfNewDay(): Promise<void> {
@@ -109,4 +112,5 @@ export async function deleteHabit(id: string): Promise<void> {
     const idx = habits.findIndex((h) => h.id === id);
     if (idx !== -1) habits.splice(idx, 1);
     emitHabitsChanged();
+    syncReminders();
 }

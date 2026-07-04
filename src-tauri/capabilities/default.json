@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Capability for the main and widget windows, all platforms",
   "windows": ["main", "widget"],
-  "permissions": ["core:default", "core:window:allow-hide", "opener:default"]
+  "permissions": ["core:default", "core:window:allow-hide", "opener:default", "notification:default"]
 }
